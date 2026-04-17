@@ -1,0 +1,35 @@
+# Virtual environment
+venv/
+.venv/
+
+# Environment variables (contains API keys!)
+.env
+
+# Credentials (contains Google OAuth secrets!)
+config/credentials/
+
+# Database
+data/
+*.db
+
+# Token files
+*.json.bak
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Logs
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

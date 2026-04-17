@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LeadFlow AI — Cold Email Outreach Dashboard</title>
+    <meta name="description" content="AI-powered cold email outreach system with personalized emails, automated follow-ups, and reply tracking.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <!-- ═══ Sidebar ═══ -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+                </svg>
+            </div>
+            <span class="brand-text">LeadFlow <span class="brand-ai">AI</span></span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="#" class="nav-item active" data-section="overview" id="nav-overview">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                <span>Overview</span>
+            </a>
+            <a href="#" class="nav-item" data-section="leads" id="nav-leads">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <span>Leads</span>
+            </a>
+            <a href="#" class="nav-item" data-section="campaigns" id="nav-campaigns">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                <span>Campaigns</span>
+            </a>
+            <a href="#" class="nav-item" data-section="emails" id="nav-emails">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                <span>Emails</span>
+            </a>
+            <a href="#" class="nav-item" data-section="replies" id="nav-replies">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+                <span>Replies</span>
+            </a>
+            <a href="#" class="nav-item" data-section="accounts" id="nav-accounts">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                <span>Accounts</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="system-status" id="system-status">
+                <div class="status-dot online"></div>
+                <span>System Online</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ═══ Main Content ═══ -->
+    <main class="main-content">
+        <!-- Header -->
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <button class="menu-toggle" id="menu-toggle" aria-label="Toggle sidebar">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                </button>
+                <h1 class="page-title" id="page-title">Overview</h1>
+            </div>
+            <div class="top-bar-right">
+                <button class="btn btn-ghost" id="btn-refresh" title="Refresh data">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                </button>
+                <button class="btn btn-primary" id="btn-check-replies">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+                    Check Replies
+                </button>
+            </div>
+        </header>
+
+        <div class="content-area" id="content-area">
+
+            <!-- ═══ OVERVIEW SECTION ═══ -->
+            <section class="section active" id="section-overview">
+                <!-- Stat Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card" id="stat-leads">
+                        <div class="stat-icon icon-purple">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="val-total-leads">0</span>
+                            <span class="stat-label">Total Leads</span>
+                        </div>
+                    </div>
+                    <div class="stat-card" id="stat-sent">
+                        <div class="stat-icon icon-blue">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="val-total-sent">0</span>
+                            <span class="stat-label">Emails Sent</span>
+                        </div>
+                    </div>
+                    <div class="stat-card" id="stat-replies">
+                        <div class="stat-icon icon-green">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="val-total-replies">0</span>
+                            <span class="stat-label">Replies</span>
+                        </div>
+                    </div>
+                    <div class="stat-card" id="stat-rate">
+                        <div class="stat-icon icon-amber">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="val-reply-rate">0%</span>
+                            <span class="stat-label">Reply Rate</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rate Cards Row -->
+                <div class="rates-grid">
+                    <div class="rate-card">
+                        <div class="rate-header">
+                            <span class="rate-title">Bounce Rate</span>
+                            <span class="rate-value" id="val-bounce-rate">0%</span>
+                        </div>
+                        <div class="rate-bar">
+                            <div class="rate-fill rate-fill-red" id="bar-bounce" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="rate-card">
+                        <div class="rate-header">
+                            <span class="rate-title">Interested Rate</span>
+                            <span class="rate-value" id="val-interested-rate">0%</span>
+                        </div>
+                        <div class="rate-bar">
+                            <div class="rate-fill rate-fill-green" id="bar-interested" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="rate-card">
+                        <div class="rate-header">
+                            <span class="rate-title">Pending Emails</span>
+                            <span class="rate-value" id="val-pending">0</span>
+                        </div>
+                        <div class="rate-bar">
+                            <div class="rate-fill rate-fill-blue" id="bar-pending" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pipeline Chart -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Lead Pipeline</h3>
+                    </div>
+                    <div class="pipeline-chart" id="pipeline-chart">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- ═══ LEADS SECTION ═══ -->
+            <section class="section" id="section-leads">
+                <div class="section-toolbar">
+                    <div class="toolbar-left">
+                        <select class="select" id="lead-status-filter">
+                            <option value="">All Statuses</option>
+                            <option value="new">New</option>
+                            <option value="enriched">Enriched</option>
+                            <option value="email_generated">Email Generated</option>
+                            <option value="emailed">Emailed</option>
+                            <option value="followup_1_sent">Follow-Up 1 Sent</option>
+                            <option value="followup_2_sent">Follow-Up 2 Sent</option>
+                            <option value="replied">Replied</option>
+                            <option value="bounced">Bounced</option>
+                        </select>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn btn-secondary" id="btn-enrich">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            Enrich Leads
+                        </button>
+                        <button class="btn btn-secondary" id="btn-generate-emails">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                            Generate Emails
+                        </button>
+                        <label class="btn btn-primary upload-btn" id="btn-upload-csv">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            Upload CSV
+                            <input type="file" accept=".csv" id="csv-file-input" hidden>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="table-wrapper">
+                        <table class="data-table" id="leads-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Company</th>
+                                    <th>Industry</th>
+                                    <th>Status</th>
+                                    <th>Source</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="leads-tbody">
+                                <tr><td colspan="7" class="empty-state">No leads yet. Upload a CSV to get started.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination" id="leads-pagination"></div>
+                </div>
+            </section>
+
+            <!-- ═══ CAMPAIGNS SECTION ═══ -->
+            <section class="section" id="section-campaigns">
+                <div class="section-toolbar">
+                    <div class="toolbar-left">
+                        <h3>Your Campaigns</h3>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn btn-primary" id="btn-new-campaign">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            New Campaign
+                        </button>
+                    </div>
+                </div>
+
+                <div class="campaigns-grid" id="campaigns-grid">
+                    <div class="empty-state-card">
+                        <p>No campaigns yet. Create one to start sending emails.</p>
+                    </div>
+                </div>
+
+                <!-- New Campaign Modal -->
+                <div class="modal-overlay" id="modal-new-campaign">
+                    <div class="modal">
+                        <div class="modal-header">
+                            <h3>Create Campaign</h3>
+                            <button class="modal-close" id="modal-close-campaign">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label for="campaign-name">Campaign Name</label>
+                                <input type="text" id="campaign-name" class="input" placeholder="e.g., Q2 SaaS Outreach">
+                            </div>
+                            <div class="form-group">
+                                <label for="campaign-limit">Daily Send Limit</label>
+                                <input type="number" id="campaign-limit" class="input" value="50" min="1" max="500">
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-ghost" id="btn-cancel-campaign">Cancel</button>
+                            <button class="btn btn-primary" id="btn-create-campaign">Create Campaign</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ═══ EMAILS SECTION ═══ -->
+            <section class="section" id="section-emails">
+                <div class="section-toolbar">
+                    <div class="toolbar-left">
+                        <select class="select" id="email-status-filter">
+                            <option value="">All Statuses</option>
+                            <option value="pending">Pending</option>
+                            <option value="sent">Sent</option>
+                            <option value="failed">Failed</option>
+                            <option value="bounced">Bounced</option>
+                        </select>
+                        <select class="select" id="email-type-filter">
+                            <option value="">All Types</option>
+                            <option value="initial">Initial</option>
+                            <option value="followup_1">Follow-Up 1</option>
+                            <option value="followup_2">Follow-Up 2</option>
+                        </select>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn btn-secondary" id="btn-check-followups">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            Queue Follow-Ups
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="table-wrapper">
+                        <table class="data-table" id="emails-table">
+                            <thead>
+                                <tr>
+                                    <th>Subject</th>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                    <th>Account</th>
+                                    <th>Sent At</th>
+                                </tr>
+                            </thead>
+                            <tbody id="emails-tbody">
+                                <tr><td colspan="5" class="empty-state">No emails yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination" id="emails-pagination"></div>
+                </div>
+            </section>
+
+            <!-- ═══ REPLIES SECTION ═══ -->
+            <section class="section" id="section-replies">
+                <div class="section-toolbar">
+                    <div class="toolbar-left">
+                        <select class="select" id="reply-class-filter">
+                            <option value="">All Classifications</option>
+                            <option value="interested">Interested</option>
+                            <option value="not_interested">Not Interested</option>
+                            <option value="out_of_office">Out of Office</option>
+                            <option value="unsubscribe">Unsubscribe</option>
+                            <option value="spam">Spam</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="table-wrapper">
+                        <table class="data-table" id="replies-table">
+                            <thead>
+                                <tr>
+                                    <th>Lead</th>
+                                    <th>Reply Preview</th>
+                                    <th>Classification</th>
+                                    <th>Confidence</th>
+                                    <th>Received</th>
+                                </tr>
+                            </thead>
+                            <tbody id="replies-tbody">
+                                <tr><td colspan="5" class="empty-state">No replies yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination" id="replies-pagination"></div>
+                </div>
+            </section>
+
+            <!-- ═══ ACCOUNTS SECTION ═══ -->
+            <section class="section" id="section-accounts">
+                <div class="section-toolbar">
+                    <div class="toolbar-left">
+                        <h3>Gmail Accounts</h3>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn btn-secondary" id="btn-health-check">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                            Health Check
+                        </button>
+                        <button class="btn btn-primary" id="btn-add-account">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Add Account
+                        </button>
+                    </div>
+                </div>
+
+                <div class="accounts-grid" id="accounts-grid">
+                    <div class="empty-state-card">
+                        <p>No Gmail accounts configured. Add one to start sending.</p>
+                    </div>
+                </div>
+
+                <!-- Add Account Modal -->
+                <div class="modal-overlay" id="modal-add-account">
+                    <div class="modal">
+                        <div class="modal-header">
+                            <h3>Add Gmail Account</h3>
+                            <button class="modal-close" id="modal-close-account">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label for="account-email">Gmail Address</label>
+                                <input type="email" id="account-email" class="input" placeholder="you@gmail.com">
+                            </div>
+                            <div class="form-group">
+                                <label for="account-name">Display Name (optional)</label>
+                                <input type="text" id="account-name" class="input" placeholder="My Sales Account">
+                            </div>
+                            <p class="form-hint">A browser window will open for Google OAuth authorization.</p>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-ghost" id="btn-cancel-account">Cancel</button>
+                            <button class="btn btn-primary" id="btn-submit-account">Add Account</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Toast Notification -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
