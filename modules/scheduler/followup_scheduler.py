@@ -43,7 +43,7 @@ class FollowUpScheduler:
         # Check if campaign is active
         if campaign_id:
             with get_session() as session:
-                campaign = session.query(Campaign).get(campaign_id)
+                campaign = session.get(Campaign, campaign_id)
                 if not campaign or campaign.status != CampaignStatus.ACTIVE:
                     logger.info(f"Campaign {campaign_id} not active, skipping follow-ups")
                     return stats
@@ -53,6 +53,8 @@ class FollowUpScheduler:
         followup_2_cutoff = now - timedelta(days=FOLLOWUP_2_DAYS)
 
         # ── Follow-Up 1: Leads emailed > 2 days ago without reply ────────
+        # Collect eligible lead IDs in a short-lived session, then generate outside
+        eligible_lead_ids: list[int] = []
         with get_session() as session:
             query = session.query(Lead).filter(
                 Lead.status == LeadStatus.EMAILED,
@@ -63,7 +65,6 @@ class FollowUpScheduler:
             emailed_leads = query.all()
 
             for lead in emailed_leads:
-                # Find the initial email
                 initial = (
                     session.query(EmailRecord)
                     .filter_by(
@@ -76,12 +77,10 @@ class FollowUpScheduler:
                 if not initial or not initial.sent_at:
                     continue
 
-                # Check if enough time has passed
                 if initial.sent_at > followup_1_cutoff:
                     stats["skipped"] += 1
                     continue
 
-                # Check if follow-up 1 already exists
                 existing = (
                     session.query(EmailRecord)
                     .filter_by(lead_id=lead.id, email_type=EmailType.FOLLOWUP_1)
@@ -91,39 +90,17 @@ class FollowUpScheduler:
                     stats["skipped"] += 1
                     continue
 
-                lead_id = lead.id
+                eligible_lead_ids.append(lead.id)
 
-            # Generate follow-ups outside the session to avoid long transactions
-            for lead in emailed_leads:
-                initial = None
-                with get_session() as inner_session:
-                    initial = (
-                        inner_session.query(EmailRecord)
-                        .filter_by(
-                            lead_id=lead.id,
-                            email_type=EmailType.INITIAL,
-                            status=EmailStatus.SENT,
-                        )
-                        .first()
-                    )
-                    if not initial or not initial.sent_at or initial.sent_at > followup_1_cutoff:
-                        continue
-                    existing = (
-                        inner_session.query(EmailRecord)
-                        .filter_by(lead_id=lead.id, email_type=EmailType.FOLLOWUP_1)
-                        .first()
-                    )
-                    if existing:
-                        continue
-
-                try:
-                    result = generate_followup_for_lead(lead.id, EmailType.FOLLOWUP_1)
-                    if result:
-                        stats["followup_1_queued"] += 1
-                        logger.info(f"Queued follow-up 1 for lead {lead.id}")
-                except Exception as e:
-                    stats["errors"] += 1
-                    logger.error(f"Failed to queue follow-up 1 for lead {lead.id}: {e}")
+        for lead_id in eligible_lead_ids:
+            try:
+                result = generate_followup_for_lead(lead_id, EmailType.FOLLOWUP_1)
+                if result:
+                    stats["followup_1_queued"] += 1
+                    logger.info(f"Queued follow-up 1 for lead {lead_id}")
+            except Exception as e:
+                stats["errors"] += 1
+                logger.error(f"Failed to queue follow-up 1 for lead {lead_id}: {e}")
 
         # ── Follow-Up 2: Leads with follow-up 1 sent > 3 more days ago ──
         with get_session() as session:
@@ -148,17 +125,9 @@ class FollowUpScheduler:
                 if not fu1 or not fu1.sent_at:
                     continue
 
-                # Follow-up 2 is sent FOLLOWUP_2_DAYS after initial, so check from initial
-                initial = (
-                    session.query(EmailRecord)
-                    .filter_by(
-                        lead_id=lead.id,
-                        email_type=EmailType.INITIAL,
-                        status=EmailStatus.SENT,
-                    )
-                    .first()
-                )
-                if not initial or not initial.sent_at or initial.sent_at > followup_2_cutoff:
+                # Follow-up 2 should be sent FOLLOWUP_2_DAYS after the initial email,
+                # but only if enough time has passed since follow-up 1 as well
+                if fu1.sent_at > followup_2_cutoff:
                     stats["skipped"] += 1
                     continue
 

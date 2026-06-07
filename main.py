@@ -104,6 +104,25 @@ def start_scheduler():
             replace_existing=True,
         )
 
+        # Account health recheck — every 6 hours
+        def health_recheck_job():
+            try:
+                from modules.email_sender.account_manager import AccountManager
+                manager = AccountManager()
+                result = manager.health_check_all()
+                if result["unhealthy"] > 0:
+                    logger.warning(f"Health recheck: {result['unhealthy']} accounts unhealthy")
+            except Exception as e:
+                logger.error(f"Health recheck job failed: {e}")
+
+        _scheduler.add_job(
+            health_recheck_job,
+            trigger=IntervalTrigger(hours=6),
+            id="health_recheck",
+            name="Recheck Gmail account health",
+            replace_existing=True,
+        )
+
         # Warmup increment job — run daily at midnight
         def warmup_increment_job():
             try:
@@ -193,12 +212,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# CORS — localhost only for security
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
 

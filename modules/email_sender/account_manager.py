@@ -77,11 +77,14 @@ class AccountManager:
                 "error": error,
             }
 
-    def get_available_account(self) -> Optional[GmailClient]:
+    def get_available_account(self, campaign_id: int = None) -> Optional[GmailClient]:
         """
         Get the next available Gmail account using round-robin.
         Skips accounts that have reached daily limits or are unhealthy.
-        
+
+        Args:
+            campaign_id: If provided, uses the campaign's warmup-aware daily limit.
+
         Returns:
             GmailClient instance or None if no accounts available
         """
@@ -98,6 +101,16 @@ class AccountManager:
 
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+            # Resolve per-account daily limit (warmup-aware if campaign provided)
+            from config.settings import DAILY_SEND_LIMIT
+            daily_limit = DAILY_SEND_LIMIT
+            if campaign_id:
+                from database.models import Campaign
+                campaign = session.get(Campaign, campaign_id)
+                if campaign and campaign.current_daily_limit:
+                    # Spread campaign limit evenly across active accounts
+                    daily_limit = max(1, campaign.current_daily_limit // len(accounts))
+
             # Try each account starting from round-robin index
             for i in range(len(accounts)):
                 idx = (self._round_robin_index + i) % len(accounts)
@@ -108,9 +121,8 @@ class AccountManager:
                     account.sends_today = 0
                     account.last_reset_date = today
 
-                # Check daily limit (per account)
-                from config.settings import DAILY_SEND_LIMIT
-                if account.sends_today >= DAILY_SEND_LIMIT:
+                # Check daily limit (per account, warmup-aware)
+                if account.sends_today >= daily_limit:
                     continue
 
                 # Get or create client

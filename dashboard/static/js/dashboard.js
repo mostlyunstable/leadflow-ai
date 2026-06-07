@@ -133,6 +133,18 @@ async function apiGet(path) {
     }
 }
 
+function setLoading(containerId, loading) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    if (loading) {
+        el.dataset.prevContent = el.innerHTML;
+        el.innerHTML = '<div class="loading-spinner" style="text-align:center;padding:2rem;color:#94a3b8;">Loading...</div>';
+    } else if (el.dataset.prevContent) {
+        el.innerHTML = el.dataset.prevContent;
+        delete el.dataset.prevContent;
+    }
+}
+
 async function apiPost(path, data = {}, isForm = true) {
     try {
         const apiKey = await getApiKey();
@@ -278,7 +290,9 @@ async function loadLeads() {
 
 async function deleteLead(id) {
     if (!confirm('Delete this lead and all associated emails?')) return;
-    const res = await fetch(`${API}/leads/${id}`, { method: 'DELETE' });
+    const apiKey = await getApiKey();
+    const headers = apiKey ? { 'X-Api-Key': apiKey } : {};
+    const res = await fetch(`${API}/leads/${id}`, { method: 'DELETE', headers });
     if (res.ok) { showToast('success', 'Lead Deleted'); loadLeads(); }
 }
 
@@ -580,9 +594,12 @@ function initActions() {
 
 function esc(str) {
     if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function renderPagination(containerId, total, currentPage, onPageChange) {

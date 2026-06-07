@@ -19,6 +19,9 @@ engine = create_engine(
     DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+    pool_recycle=300,
     connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {},
 )
 

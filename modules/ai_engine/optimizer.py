@@ -6,6 +6,8 @@ Implements simple A/B tracking and feeds best-performing patterns back to the ge
 import logging
 from typing import Optional
 
+from sqlalchemy import func
+
 from database.database import get_session
 from database.models import EmailTemplate, EmailRecord, EmailType, Reply
 
@@ -43,7 +45,7 @@ def record_reply(email_record_id: int):
     and update its performance score.
     """
     with get_session() as session:
-        record = session.query(EmailRecord).get(email_record_id)
+        record = session.get(EmailRecord, email_record_id)
         if not record:
             return
 
@@ -119,12 +121,12 @@ def get_optimization_report() -> dict:
     """
     with get_session() as session:
         total_templates = session.query(EmailTemplate).count()
-        total_uses = sum(
-            t.times_used for t in session.query(EmailTemplate).all()
-        ) if total_templates > 0 else 0
-        total_replies = sum(
-            t.reply_count for t in session.query(EmailTemplate).all()
-        ) if total_templates > 0 else 0
+        totals = session.query(
+            func.coalesce(func.sum(EmailTemplate.times_used), 0),
+            func.coalesce(func.sum(EmailTemplate.reply_count), 0),
+        ).one()
+        total_uses = int(totals[0]) if total_templates > 0 else 0
+        total_replies = int(totals[1]) if total_templates > 0 else 0
 
     top_performers = get_top_performing_templates(limit=5, min_uses=1)
 

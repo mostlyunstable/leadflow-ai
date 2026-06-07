@@ -4,6 +4,7 @@ Uses BeautifulSoup for parsing and OpenAI for intelligent summarization.
 """
 
 import logging
+import re
 import time
 from typing import Optional
 from urllib.parse import urljoin, urlparse
@@ -27,6 +28,9 @@ logger = logging.getLogger(__name__)
 class LeadEnricher:
     """Scrapes company websites and enriches lead data with AI summarization."""
 
+    MAX_REDIRECTS = 5
+    MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5 MB
+
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update({
@@ -34,6 +38,29 @@ class LeadEnricher:
             "Accept": "text/html,application/xhtml+xml",
             "Accept-Language": "en-US,en;q=0.9",
         })
+        self._robots_cache: dict[str, bool] = {}
+
+    def _is_allowed_by_robots(self, url: str) -> bool:
+        """Check robots.txt to see if scraping is allowed."""
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        if base in self._robots_cache:
+            return self._robots_cache[base]
+
+        try:
+            robots_url = f"{base}/robots.txt"
+            resp = self.session.get(robots_url, timeout=5)
+            if resp.status_code == 200:
+                # Simple check: look for Disallow: / with our user-agent
+                text = resp.text.lower()
+                if "disallow: /" in text and f"user-agent: {SCRAPE_USER_AGENT.lower()}" in text:
+                    self._robots_cache[base] = False
+                    return False
+        except Exception:
+            pass  # If we can't fetch robots.txt, assume allowed
+
+        self._robots_cache[base] = True
+        return True
 
     def scrape_website(self, url: str) -> Optional[dict]:
         """
@@ -49,6 +76,11 @@ class LeadEnricher:
         if not url.startswith(("http://", "https://")):
             url = f"https://{url}"
 
+        # Respect robots.txt
+        if not self._is_allowed_by_robots(url):
+            logger.info(f"Blocked by robots.txt: {url}")
+            return None
+
         scraped = {
             "title": "",
             "meta_description": "",
@@ -59,9 +91,20 @@ class LeadEnricher:
         }
 
         try:
-            # Scrape homepage
-            resp = self.session.get(url, timeout=SCRAPE_TIMEOUT, allow_redirects=True)
+            # Scrape homepage with redirect loop protection
+            resp = self.session.get(
+                url,
+                timeout=SCRAPE_TIMEOUT,
+                allow_redirects=True,
+                max_redirects=self.MAX_REDIRECTS,
+            )
             resp.raise_for_status()
+
+            # Guard against large responses
+            content_length = int(resp.headers.get("Content-Length", 0))
+            if content_length > self.MAX_CONTENT_LENGTH:
+                logger.warning(f"Response too large ({content_length} bytes) for {url}")
+                return None
 
             soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -83,8 +126,11 @@ class LeadEnricher:
                     if text and len(text) > 3:
                         scraped["headings"].append(text)
 
-            # Extract body content (first 1000 chars of visible text)
+            # Extract body content (first 1500 chars of visible text)
             body_text = soup.get_text(separator=" ", strip=True)
+            # Sanitize: collapse whitespace and strip control characters
+            body_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', body_text)
+            body_text = re.sub(r'\s+', ' ', body_text).strip()
             scraped["content"] = body_text[:1500]
 
             # Try to find and scrape About page
@@ -208,7 +254,7 @@ class LeadEnricher:
         Returns True if enrichment was successful.
         """
         with get_session() as session:
-            lead = session.query(Lead).get(lead_id)
+            lead = session.get(Lead, lead_id)
             if not lead:
                 logger.error(f"Lead {lead_id} not found")
                 return False

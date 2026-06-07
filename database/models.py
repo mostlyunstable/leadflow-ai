@@ -104,6 +104,7 @@ class Lead(Base):
 
     __table_args__ = (
         Index("ix_leads_status_campaign", "status", "campaign_id"),
+        Index("ix_leads_campaign_id", "campaign_id"),
     )
 
     def __repr__(self):
@@ -144,6 +145,10 @@ class EmailRecord(Base):
     scheduled_at = Column(DateTime, nullable=True)
     sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_email_records_lead_type", "lead_id", "email_type"),
+    )
 
     # Relationships
     lead = relationship("Lead", back_populates="emails")

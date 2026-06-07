@@ -59,12 +59,31 @@ def _get_openai_client():
     return OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
 
 
+def _sanitize_input(text: str) -> str:
+    """Strip prompt-injection patterns from user-supplied fields."""
+    if not text:
+        return text
+    patterns = [
+        r"ignore\s+(all\s+)?previous\s+instructions",
+        r"you\s+are\s+now\s+",
+        r"disregard\s+",
+        r"system\s*:\s*",
+        r"<\|im_start\|>",
+        r"<\|im_end\|>",
+        r"```",
+    ]
+    for p in patterns:
+        text = re.sub(p, "", text, flags=re.IGNORECASE)
+    return text.strip()
+
+
 def _check_spam_words(text: str) -> list[str]:
     """Check text for spam trigger words. Returns list of found triggers."""
     text_lower = text.lower()
     found = []
     for word in SPAM_TRIGGER_WORDS:
-        if word in text_lower:
+        # Use word-boundary regex to avoid false positives like "free" in "freedom"
+        if re.search(r'\b' + re.escape(word) + r'\b', text_lower):
             found.append(word)
     return found
 
@@ -85,17 +104,25 @@ def _clean_json_response(text: str) -> dict:
         start = text.find('{')
         end = text.rfind('}')
         if start != -1 and end != -1 and end > start:
-            candidate = text[start:end+1]
-            # Replace literal newlines inside strings with escaped newlines
-            candidate = re.sub(r'(?<="body":\s*")([^"]*)\n([^"]*)', r'\1\\n\2', candidate)
+            candidate = text[start:end + 1]
+            # Replace literal newlines inside strings with escaped newlines (multi-pass)
+            for _ in range(5):
+                candidate = re.sub(
+                    r'(?<="body":\s*")([^"]*)\n([^"]*)', r'\1\\n\2', candidate
+                )
             try:
                 return json.loads(candidate)
             except json.JSONDecodeError:
                 # Last resort: manually extract subject and body
-                subject_match = re.search(r'"subject"\s*:\s*"([^"]*)"', text)
-                body_match = re.search(r'"body"\s*:\s*"(.*?)(?:"\s*}|\s*"\s*})', text, re.DOTALL)
+                subject_match = re.search(r'"subject"\s*:\s*"((?:[^"\\]|\\.)*)"', text)
+                body_match = re.search(
+                    r'"body"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.DOTALL
+                )
                 if subject_match and body_match:
-                    return {"subject": subject_match.group(1), "body": body_match.group(1).replace('\\n', '\n')}
+                    return {
+                        "subject": subject_match.group(1),
+                        "body": body_match.group(1).replace("\\n", "\n"),
+                    }
         raise ValueError(f"Could not parse JSON from response: {text[:200]}")
 
 
@@ -115,18 +142,22 @@ def generate_email(
     """
     client = _get_openai_client()
 
-    # Build lead context
+    # Build lead context — sanitize all user-supplied fields against prompt injection
+    first_name = _sanitize_input(lead.first_name or "")
+    last_name = _sanitize_input(lead.last_name or "")
+    company_name = _sanitize_input(lead.company_name or "")
+
     context_parts = [
-        f"Recipient: {lead.first_name} {lead.last_name}",
-        f"Company: {lead.company_name}",
+        f"Recipient: {first_name} {last_name}",
+        f"Company: {company_name}",
     ]
 
     if lead.industry:
-        context_parts.append(f"Industry: {lead.industry}")
+        context_parts.append(f"Industry: {_sanitize_input(lead.industry)}")
     if lead.company_description:
-        context_parts.append(f"Company description: {lead.company_description}")
+        context_parts.append(f"Company description: {_sanitize_input(lead.company_description)}")
     if lead.key_offering:
-        context_parts.append(f"Key offering: {lead.key_offering}")
+        context_parts.append(f"Key offering: {_sanitize_input(lead.key_offering)}")
     if lead.website:
         context_parts.append(f"Website: {lead.website}")
 
@@ -202,12 +233,12 @@ def generate_email(
 def generate_email_for_lead(lead_id: int, campaign_id: int = None) -> Optional[dict]:
     """
     Generate and store email for a specific lead.
-    
+
     Returns:
         dict with email details or None if failed
     """
     with get_session() as session:
-        lead = session.query(Lead).get(lead_id)
+        lead = session.get(Lead, lead_id)
         if not lead:
             logger.error(f"Lead {lead_id} not found")
             return None

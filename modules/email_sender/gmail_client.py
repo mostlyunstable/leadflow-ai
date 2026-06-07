@@ -24,6 +24,8 @@ def _get_token_path(email: str) -> str:
     """Get the token file path for a Gmail account."""
     _ensure_token_dir()
     safe_name = email.replace("@", "_at_").replace(".", "_")
+    # Prevent path traversal even after sanitization
+    safe_name = safe_name.replace("/", "_").replace("\\", "_").replace("..", "_")
     return os.path.join(GMAIL_TOKEN_DIR, f"token_{safe_name}.json")
 
 
@@ -68,9 +70,15 @@ class GmailClient:
             if creds and creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(Request())
+                    logger.info(f"Token refreshed for {self.account_email}")
                 except Exception as e:
                     logger.warning(f"Token refresh failed for {self.account_email}: {e}")
+                    # Delete stale token so we re-authenticate cleanly
                     creds = None
+                    try:
+                        os.remove(self.token_path)
+                    except OSError:
+                        pass
 
             if not creds:
                 if not os.path.exists(GMAIL_CREDENTIALS_FILE):
@@ -82,12 +90,18 @@ class GmailClient:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     GMAIL_CREDENTIALS_FILE, GMAIL_SCOPES
                 )
-                creds = flow.run_local_server(
-                    port=8090,
-                    open_browser=True,
-                    prompt="consent",
-                    success_message="✅ Gmail connected to LeadFlow! You can close this tab."
-                )
+
+                # Try browser-based auth first; fall back to console for headless environments
+                try:
+                    creds = flow.run_local_server(
+                        port=8090,
+                        open_browser=True,
+                        prompt="consent",
+                        success_message="Gmail connected to LeadFlow! You can close this tab.",
+                    )
+                except Exception:
+                    logger.info("Browser auth unavailable, falling back to console OAuth")
+                    creds = flow.run_console()
 
             # Save token
             with open(self.token_path, "w") as token_file:
@@ -111,16 +125,18 @@ class GmailClient:
         subject: str,
         body: str,
         thread_id: Optional[str] = None,
+        sender_name: str = None,
     ) -> dict:
         """
         Send a plain-text email via Gmail API.
-        
+
         Args:
             to: Recipient email
             subject: Email subject
             body: Email body (plain text)
             thread_id: Optional thread ID for follow-ups
-            
+            sender_name: Optional display name for From header
+
         Returns:
             dict with keys: message_id, thread_id, label_ids
         """
@@ -128,6 +144,16 @@ class GmailClient:
         message = MIMEText(body, "plain")
         message["to"] = to
         message["subject"] = subject
+
+        # From header with display name
+        if sender_name:
+            message["from"] = f"{sender_name} <{self.account_email}>"
+        else:
+            message["from"] = self.account_email
+
+        # RFC 8058 One-Click List-Unsubscribe
+        message["List-Unsubscribe"] = f"<mailto:{self.account_email}?subject=unsubscribe>"
+        message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
         # Encode
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")

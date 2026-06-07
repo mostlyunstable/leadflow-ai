@@ -59,14 +59,26 @@ class BatchSender:
         # Determine daily limit
         effective_limit = limit or self._get_effective_daily_limit(campaign_id)
 
-        # Get pending emails
+        # Get pending emails — exclude leads that already received an email
         with get_session() as session:
-            query = session.query(EmailRecord).filter(
-                EmailRecord.status.in_([EmailStatus.PENDING, EmailStatus.QUEUED])
+            query = (
+                session.query(EmailRecord)
+                .join(Lead, EmailRecord.lead_id == Lead.id)
+                .filter(
+                    EmailRecord.status.in_([EmailStatus.PENDING, EmailStatus.QUEUED]),
+                    Lead.status.notin_([
+                        LeadStatus.EMAILED,
+                        LeadStatus.FOLLOWUP_1_SENT,
+                        LeadStatus.FOLLOWUP_2_SENT,
+                        LeadStatus.REPLIED,
+                        LeadStatus.BOUNCED,
+                        LeadStatus.UNSUBSCRIBED,
+                    ]),
+                )
             )
 
             if campaign_id:
-                query = query.join(Lead).filter(Lead.campaign_id == campaign_id)
+                query = query.filter(Lead.campaign_id == campaign_id)
 
             pending = query.order_by(EmailRecord.created_at).limit(effective_limit).all()
             email_ids = [e.id for e in pending]
@@ -90,7 +102,7 @@ class BatchSender:
             # Check DB state for Pause signal (handles multi-worker concurrency)
             if campaign_id:
                 with get_session() as session:
-                    camp = session.query(Campaign).get(campaign_id)
+                    camp = session.get(Campaign, campaign_id)
                     if camp and camp.status != CampaignStatus.ACTIVE:
                         logger.info("Batch send stopped — campaign is no longer active.")
                         stopped = True
@@ -102,7 +114,7 @@ class BatchSender:
                 break
 
             # Send with retry
-            success = self._send_with_retry(email_id)
+            success = self._send_with_retry(email_id, campaign_id=campaign_id)
             if success:
                 sent += 1
             else:
@@ -127,25 +139,25 @@ class BatchSender:
         logger.info(f"Batch send complete: {result}")
         return result
 
-    def _send_with_retry(self, email_id: int) -> bool:
+    def _send_with_retry(self, email_id: int, campaign_id: int = None) -> bool:
         """
         Attempt to send a single email with retry logic.
         Returns True if sent successfully.
         """
         with get_session() as session:
-            record = session.query(EmailRecord).get(email_id)
+            record = session.get(EmailRecord, email_id)
             if not record:
                 return False
 
-            lead = session.query(Lead).get(record.lead_id)
+            lead = session.get(Lead, record.lead_id)
             if not lead:
                 logger.error(f"Lead not found for email record {email_id}")
                 record.status = EmailStatus.FAILED
                 record.error_message = "Lead not found"
                 return False
 
-            # Get available Gmail account
-            gmail_client = self.account_manager.get_available_account()
+            # Get available Gmail account (warmup-aware if campaign_id provided)
+            gmail_client = self.account_manager.get_available_account(campaign_id=campaign_id)
             if not gmail_client:
                 logger.error("No available Gmail accounts for sending")
                 record.status = EmailStatus.FAILED
@@ -162,6 +174,7 @@ class BatchSender:
                         subject=record.subject,
                         body=record.body,
                         thread_id=record.gmail_thread_id,
+                        sender_name=lead.first_name,
                     )
 
                     # Update record
@@ -215,7 +228,7 @@ class BatchSender:
         """
         if campaign_id:
             with get_session() as session:
-                campaign = session.query(Campaign).get(campaign_id)
+                campaign = session.get(Campaign, campaign_id)
                 if campaign and campaign.current_daily_limit:
                     return campaign.current_daily_limit
 
@@ -224,7 +237,7 @@ class BatchSender:
     def _update_campaign_stats(self, campaign_id: int):
         """Update denormalized campaign statistics."""
         with get_session() as session:
-            campaign = session.query(Campaign).get(campaign_id)
+            campaign = session.get(Campaign, campaign_id)
             if not campaign:
                 return
 

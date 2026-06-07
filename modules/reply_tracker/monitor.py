@@ -148,15 +148,18 @@ class InboxMonitor:
             )
 
             with get_session() as session:
+                # Match the most recent sent email in this thread to avoid
+                # misclassifying replies to follow-ups as replies to initial
                 email_record = (
                     session.query(EmailRecord)
                     .filter_by(gmail_thread_id=thread_id, status=EmailStatus.SENT)
+                    .order_by(EmailRecord.sent_at.desc())
                     .first()
                 )
                 if not email_record:
                     continue
 
-                lead = session.query(Lead).get(email_record.lead_id)
+                lead = session.get(Lead, email_record.lead_id)
                 if not lead:
                     continue
 

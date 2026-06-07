@@ -8,6 +8,7 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Header, BackgroundTasks
@@ -32,15 +33,33 @@ from modules.scheduler.followup_scheduler import FollowUpScheduler
 
 logger = logging.getLogger(__name__)
 
+# ── Simple in-memory rate limiter ──────────────────────────────────────────
+_rate_limits: dict[str, list[float]] = {}
+_rate_lock = threading.Lock()
+MAX_REQUESTS_PER_MINUTE = 60
+
+
+def _check_rate_limit(client_ip: str = "global"):
+    """Reject requests if the client exceeds the per-minute limit."""
+    now = time.time()
+    with _rate_lock:
+        timestamps = _rate_limits.setdefault(client_ip, [])
+        # Remove timestamps older than 60 seconds
+        timestamps[:] = [t for t in timestamps if now - t < 60]
+        if len(timestamps) >= MAX_REQUESTS_PER_MINUTE:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again shortly.")
+        timestamps.append(now)
+
 def verify_api_key(x_api_key: str = Header(None)):
     """Verify the API key if one is configured."""
     if DASHBOARD_API_KEY and x_api_key != DASHBOARD_API_KEY:
         raise HTTPException(status_code=403, detail="Invalid API Key")
+    _check_rate_limit()
 
 router = APIRouter(prefix="/api", tags=["outreach"], dependencies=[Depends(verify_api_key)])
 
 # ── Shared instances ─────────────────────────────────────────────────────────
-_batch_sender = BatchSender()
+_batch_senders: dict[int, BatchSender] = {}  # per-campaign senders to avoid race conditions
 _enricher = LeadEnricher()
 _inbox_monitor = InboxMonitor()
 _followup_scheduler = FollowUpScheduler()
@@ -150,7 +169,7 @@ async def list_leads(
 @router.delete("/leads/{lead_id}")
 async def delete_lead(lead_id: int, db: Session = Depends(get_db_session)):
     """Delete a lead and all associated records."""
-    lead = db.query(Lead).get(lead_id)
+    lead = db.get(Lead, lead_id)
     if not lead:
         raise HTTPException(404, "Lead not found")
     db.delete(lead)
@@ -257,7 +276,7 @@ async def list_campaigns(db: Session = Depends(get_db_session)):
 @router.post("/campaigns/{campaign_id}/start")
 async def start_campaign(campaign_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db_session)):
     """Start a campaign — begins sending pending emails."""
-    campaign = db.query(Campaign).get(campaign_id)
+    campaign = db.get(Campaign, campaign_id)
     if not campaign:
         raise HTTPException(404, "Campaign not found")
 
@@ -266,13 +285,17 @@ async def start_campaign(campaign_id: int, background_tasks: BackgroundTasks, db
     campaign.started_at = datetime.now(timezone.utc)
     db.commit()
 
-    # Start sending in background
+    # Start sending in background — use per-campaign sender
     def _run_send():
         try:
-            result = _batch_sender.send_pending_emails(campaign_id=campaign_id)
+            sender = BatchSender()
+            _batch_senders[campaign_id] = sender
+            result = sender.send_pending_emails(campaign_id=campaign_id)
             logger.info(f"Campaign {campaign_id} send complete: {result}")
         except Exception as e:
             logger.error(f"Campaign {campaign_id} send failed: {e}")
+        finally:
+            _batch_senders.pop(campaign_id, None)
 
     background_tasks.add_task(_run_send)
 
@@ -282,7 +305,7 @@ async def start_campaign(campaign_id: int, background_tasks: BackgroundTasks, db
 @router.post("/campaigns/{campaign_id}/pause")
 async def pause_campaign(campaign_id: int, db: Session = Depends(get_db_session)):
     """Pause a running campaign."""
-    campaign = db.query(Campaign).get(campaign_id)
+    campaign = db.get(Campaign, campaign_id)
     if not campaign:
         raise HTTPException(404, "Campaign not found")
 
@@ -291,7 +314,9 @@ async def pause_campaign(campaign_id: int, db: Session = Depends(get_db_session)
     campaign.paused_at = datetime.now(timezone.utc)
     db.commit()
 
-    _batch_sender.stop()
+    sender = _batch_senders.get(campaign_id)
+    if sender:
+        sender.stop()
 
     return {"status": "paused", "campaign_id": campaign_id}
 
@@ -556,7 +581,7 @@ async def get_optimization_stats():
 def _update_campaign_lead_count(campaign_id: int):
     """Helper to update campaign lead count."""
     with get_session() as session:
-        campaign = session.query(Campaign).get(campaign_id)
+        campaign = session.get(Campaign, campaign_id)
         if campaign:
             campaign.total_leads = (
                 session.query(Lead)

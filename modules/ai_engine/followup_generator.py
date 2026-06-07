@@ -15,7 +15,7 @@ from config.settings import (
 )
 from database.database import get_session
 from database.models import Lead, EmailRecord, EmailType, EmailStatus, LeadStatus
-from modules.ai_engine.generator import _get_openai_client, _clean_json_response, _check_spam_words
+from modules.ai_engine.generator import _get_openai_client, _clean_json_response, _check_spam_words, _sanitize_input
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +80,10 @@ def generate_followup(
     else:
         system_prompt = FOLLOWUP_2_PROMPT
 
-    # Build context
+    # Build context — sanitize lead fields against prompt injection
     context = (
-        f"Lead: {lead.first_name} {lead.last_name} at {lead.company_name}\n"
-        f"Industry: {lead.industry or 'Unknown'}\n\n"
+        f"Lead: {_sanitize_input(lead.first_name)} {_sanitize_input(lead.last_name)} at {_sanitize_input(lead.company_name)}\n"
+        f"Industry: {_sanitize_input(lead.industry or 'Unknown')}\n\n"
         f"Original email subject: {original_email.subject}\n"
         f"Original email body:\n{original_email.body}\n"
     )
@@ -140,7 +140,7 @@ def generate_followup_for_lead(
         dict with email details or None if failed/not applicable
     """
     with get_session() as session:
-        lead = session.query(Lead).get(lead_id)
+        lead = session.get(Lead, lead_id)
         if not lead:
             logger.error(f"Lead {lead_id} not found")
             return None
