@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # ── Load .env ────────────────────────────────────────────────────────────────
-load_dotenv()
+load_dotenv(override=True)
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent

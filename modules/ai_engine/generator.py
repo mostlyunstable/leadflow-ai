@@ -81,10 +81,21 @@ def _clean_json_response(text: str) -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # Try to extract JSON from text
-        match = re.search(r'\{[^{}]*"subject"[^{}]*"body"[^{}]*\}', text, re.DOTALL)
-        if match:
-            return json.loads(match.group())
+        # Try to extract JSON - find first { and last }
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            candidate = text[start:end+1]
+            # Replace literal newlines inside strings with escaped newlines
+            candidate = re.sub(r'(?<="body":\s*")([^"]*)\n([^"]*)', r'\1\\n\2', candidate)
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                # Last resort: manually extract subject and body
+                subject_match = re.search(r'"subject"\s*:\s*"([^"]*)"', text)
+                body_match = re.search(r'"body"\s*:\s*"(.*?)(?:"\s*}|\s*"\s*})', text, re.DOTALL)
+                if subject_match and body_match:
+                    return {"subject": subject_match.group(1), "body": body_match.group(1).replace('\\n', '\n')}
         raise ValueError(f"Could not parse JSON from response: {text[:200]}")
 
 

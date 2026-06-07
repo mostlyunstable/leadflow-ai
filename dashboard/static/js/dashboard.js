@@ -87,19 +87,42 @@ function switchSection(section) {
 //  API HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function getApiKey() {
+let _apiKeyCache = null;
+let _apiKeyChecked = false;
+
+async function getApiKey() {
+    if (_apiKeyChecked) return _apiKeyCache || '';
+    
     let key = localStorage.getItem('leadflow_api_key');
-    if (!key) {
-        key = prompt("Please enter your API Key to access the dashboard:");
-        if (key) localStorage.setItem('leadflow_api_key', key);
+    if (key) {
+        _apiKeyCache = key;
+        _apiKeyChecked = true;
+        return key;
     }
-    return key || '';
+    
+    // Test without API key first
+    try {
+        const res = await fetch(`${API}/stats`, { headers: {} });
+        if (res.ok) {
+            _apiKeyCache = '';
+            _apiKeyChecked = true;
+            return '';
+        }
+    } catch (e) {}
+    
+    // Need API key
+    key = prompt("Enter API Key (leave blank if none configured):");
+    if (key) localStorage.setItem('leadflow_api_key', key);
+    _apiKeyCache = key || '';
+    _apiKeyChecked = true;
+    return _apiKeyCache;
 }
 
 async function apiGet(path) {
     try {
+        const apiKey = await getApiKey();
         const res = await fetch(`${API}${path}`, {
-            headers: { 'X-API-Key': getApiKey() }
+            headers: apiKey ? { 'X-API-Key': apiKey } : {}
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return await res.json();
@@ -112,9 +135,10 @@ async function apiGet(path) {
 
 async function apiPost(path, data = {}, isForm = true) {
     try {
+        const apiKey = await getApiKey();
         let options = { 
             method: 'POST',
-            headers: { 'X-API-Key': getApiKey() }
+            headers: apiKey ? { 'X-API-Key': apiKey } : {}
         };
         if (isForm && !(data instanceof FormData)) {
             const fd = new FormData();
