@@ -542,13 +542,19 @@ function initActions() {
 
     // Generate emails
     document.getElementById('btn-generate-emails')?.addEventListener('click', async () => {
-        const res = await apiPost('/emails/generate', { limit: 50 });
+        const campaignData = await apiGet('/campaigns');
+        const activeCampaign = campaignData?.campaigns?.find(c => c.status === 'active' || c.status === 'paused');
+        const campaignId = activeCampaign?.id || null;
+        const fd = new FormData();
+        fd.append('limit', 50);
+        if (campaignId) fd.append('campaign_id', campaignId);
+        const res = await apiPost('/emails/generate', fd, true);
         if (res) showToast('info', 'Generation Started', 'AI is writing your emails...');
     });
 
     // Check follow-ups
     document.getElementById('btn-check-followups')?.addEventListener('click', async () => {
-        const res = await apiPost('/followups/check');
+        const res = await apiPost('/followups/check', new FormData(), true);
         if (res) showToast('info', 'Follow-Up Check', 'Queuing eligible follow-ups...');
     });
 
