@@ -4,6 +4,7 @@ Handles round-robin selection, daily count tracking, and health monitoring.
 """
 
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -22,6 +23,7 @@ class AccountManager:
 
     def __init__(self):
         self._clients: dict[str, GmailClient] = {}
+        self._clients_lock = threading.Lock()
         self._round_robin_index = 0
 
     def add_account(self, email: str, display_name: str = None) -> dict:
@@ -68,7 +70,8 @@ class AccountManager:
             session.add(account)
 
             if healthy:
-                self._clients[email] = client
+                with self._clients_lock:
+                    self._clients[email] = client
 
             return {
                 "status": "added" if healthy else "auth_failed",
@@ -126,19 +129,20 @@ class AccountManager:
                     continue
 
                 # Get or create client
-                if account.email not in self._clients:
-                    client = GmailClient(account.email)
-                    try:
-                        client.authenticate()
-                        self._clients[account.email] = client
-                    except Exception as e:
-                        account.is_healthy = False
-                        account.error_message = str(e)
-                        logger.error(f"Failed to auth {account.email}: {e}")
-                        continue
+                with self._clients_lock:
+                    if account.email not in self._clients:
+                        client = GmailClient(account.email)
+                        try:
+                            client.authenticate()
+                            self._clients[account.email] = client
+                        except Exception as e:
+                            account.is_healthy = False
+                            account.error_message = str(e)
+                            logger.error(f"Failed to auth {account.email}: {e}")
+                            continue
 
-                self._round_robin_index = (idx + 1) % len(accounts)
-                return self._clients[account.email]
+                    self._round_robin_index = (idx + 1) % len(accounts)
+                    return self._clients[account.email]
 
             logger.warning("All Gmail accounts have reached their daily limits")
             return None
@@ -177,19 +181,20 @@ class AccountManager:
             accounts = session.query(GmailAccount).filter_by(is_active=True).all()
 
             for account in accounts:
-                if account.email in self._clients:
-                    client = self._clients[account.email]
-                else:
-                    client = GmailClient(account.email)
-                    try:
-                        client.authenticate()
-                        self._clients[account.email] = client
-                    except Exception as e:
-                        account.is_healthy = False
-                        account.error_message = str(e)
-                        results["unhealthy"] += 1
-                        results["details"].append({"email": account.email, "healthy": False, "error": str(e)})
-                        continue
+                with self._clients_lock:
+                    if account.email in self._clients:
+                        client = self._clients[account.email]
+                    else:
+                        client = GmailClient(account.email)
+                        try:
+                            client.authenticate()
+                            self._clients[account.email] = client
+                        except Exception as e:
+                            account.is_healthy = False
+                            account.error_message = str(e)
+                            results["unhealthy"] += 1
+                            results["details"].append({"email": account.email, "healthy": False, "error": str(e)})
+                            continue
 
                 healthy = client.check_health()
                 account.is_healthy = healthy
@@ -214,8 +219,9 @@ class AccountManager:
             account = session.query(GmailAccount).filter_by(email=email).first()
             if account:
                 account.is_active = False
-                if email in self._clients:
-                    del self._clients[email]
+                with self._clients_lock:
+                    if email in self._clients:
+                        del self._clients[email]
                 logger.info(f"Deactivated account: {email}")
                 return True
             return False

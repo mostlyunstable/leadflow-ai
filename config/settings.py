@@ -77,6 +77,10 @@ HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 DEBUG = os.getenv("DEBUG", "true").lower() == "true"
 DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
+CORS_ORIGINS = [
+    o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",")
+    if o.strip()
+]
 
 # ── Spam Trigger Words ───────────────────────────────────────────────────────
 SPAM_TRIGGER_WORDS = [
@@ -129,3 +133,5 @@ UNSUBSCRIBE_FOOTER = os.getenv(
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_DIR = BASE_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
+LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", "10485760"))  # 10 MB
+LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "5"))

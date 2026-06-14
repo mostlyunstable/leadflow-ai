@@ -9,6 +9,7 @@ and serves the dashboard UI.
 import logging
 import sys
 from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import uvicorn
@@ -17,7 +18,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from config.settings import HOST, PORT, DEBUG, LOG_LEVEL, LOG_DIR, REPLY_CHECK_INTERVAL_MINUTES
+from config.settings import (
+    HOST, PORT, DEBUG, LOG_LEVEL, LOG_DIR,
+    LOG_MAX_BYTES, LOG_BACKUP_COUNT,
+    REPLY_CHECK_INTERVAL_MINUTES, CORS_ORIGINS,
+)
 from database.database import init_db
 
 # ── Logging Setup ────────────────────────────────────────────────────────────
@@ -36,8 +41,13 @@ def setup_logging():
     console.setFormatter(logging.Formatter(log_format, datefmt=date_format))
     root.addHandler(console)
 
-    # File handler
-    file_handler = logging.FileHandler(LOG_DIR / "outreach.log", encoding="utf-8")
+    # File handler with rotation
+    file_handler = RotatingFileHandler(
+        LOG_DIR / "outreach.log",
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
     file_handler.setFormatter(logging.Formatter(log_format, datefmt=date_format))
     root.addHandler(file_handler)
 
@@ -212,13 +222,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — localhost only for security
+# CORS — configurable origins for security
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],

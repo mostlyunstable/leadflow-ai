@@ -8,14 +8,18 @@ import logging
 from typing import Optional
 
 from config.settings import (
-    OPENAI_API_KEY,
     OPENAI_MODEL,
     OPENAI_TEMPERATURE,
     UNSUBSCRIBE_FOOTER,
 )
 from database.database import get_session
 from database.models import Lead, EmailRecord, EmailType, EmailStatus, LeadStatus
-from modules.ai_engine.generator import _get_openai_client, _clean_json_response, _check_spam_words, _sanitize_input
+from modules.ai_engine.ai_utils import (
+    get_openai_client,
+    clean_json_response,
+    check_spam_words,
+    sanitize_input,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +76,7 @@ def generate_followup(
     Returns:
         dict with keys: subject, body
     """
-    client = _get_openai_client()
+    client = get_openai_client()
 
     # Select prompt
     if followup_type == EmailType.FOLLOWUP_1:
@@ -82,8 +86,8 @@ def generate_followup(
 
     # Build context — sanitize lead fields against prompt injection
     context = (
-        f"Lead: {_sanitize_input(lead.first_name)} {_sanitize_input(lead.last_name)} at {_sanitize_input(lead.company_name)}\n"
-        f"Industry: {_sanitize_input(lead.industry or 'Unknown')}\n\n"
+        f"Lead: {sanitize_input(lead.first_name)} {sanitize_input(lead.last_name)} at {sanitize_input(lead.company_name)}\n"
+        f"Industry: {sanitize_input(lead.industry or 'Unknown')}\n\n"
         f"Original email subject: {original_email.subject}\n"
         f"Original email body:\n{original_email.body}\n"
     )
@@ -105,7 +109,7 @@ def generate_followup(
         max_tokens=300,
     )
 
-    result = _clean_json_response(response.choices[0].message.content)
+    result = clean_json_response(response.choices[0].message.content)
 
     if "subject" not in result or "body" not in result:
         raise ValueError(f"Follow-up response missing keys: {result}")
@@ -115,7 +119,7 @@ def generate_followup(
         result["subject"] = f"Re: {original_email.subject}"
 
     # Spam check
-    spam_found = _check_spam_words(result["body"])
+    spam_found = check_spam_words(result["body"])
     if spam_found:
         logger.warning(f"Spam words in follow-up for {lead.email}: {spam_found}")
 

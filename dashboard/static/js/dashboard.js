@@ -15,7 +15,6 @@ const state = {
     repliesPage: 1,
     perPage: 50,
     leadSearchQuery: '',
-    activityLog: [],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -122,21 +121,6 @@ async function apiGet(path) {
     }
 }
 
-function setLoading(containerId, loading) {
-    const el = document.getElementById(containerId);
-    if (!el) return;
-    if (loading) {
-        el.dataset.prevContent = el.innerHTML;
-        el.innerHTML = `<div style="text-align:center;padding:2rem;color:#94a3b8;">
-            <div class="spinner" style="margin:0 auto 12px"></div>
-            Loading...
-        </div>`;
-    } else if (el.dataset.prevContent) {
-        el.innerHTML = el.dataset.prevContent;
-        delete el.dataset.prevContent;
-    }
-}
-
 async function apiPost(path, data = {}, isForm = true) {
     try {
         const apiKey = await getApiKey();
@@ -165,15 +149,6 @@ async function apiPost(path, data = {}, isForm = true) {
         showToast('error', 'Request Failed', err.message);
         return null;
     }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-//  ACTIVITY LOG
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function logActivity(type, text) {
-    state.activityLog.unshift({ type, text, time: new Date() });
-    if (state.activityLog.length > 100) state.activityLog.length = 100;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -298,7 +273,6 @@ async function deleteLead(id) {
     const res = await fetch(`${API}/leads/${id}`, { method: 'DELETE', headers });
     if (res.ok) {
         showToast('success', 'Lead Deleted');
-        logActivity('leads', `Lead #${id} deleted`);
         loadLeads();
     }
 }
@@ -375,7 +349,6 @@ async function startCampaign(id) {
     const res = await apiPost(`/campaigns/${id}/start`);
     if (res) {
         showToast('success', 'Campaign Started', 'Emails are being sent in the background.');
-        logActivity('sent', `Campaign #${id} started`);
         loadCampaigns();
     }
 }
@@ -384,7 +357,6 @@ async function pauseCampaign(id) {
     const res = await apiPost(`/campaigns/${id}/pause`);
     if (res) {
         showToast('info', 'Campaign Paused');
-        logActivity('followup', `Campaign #${id} paused`);
         loadCampaigns();
     }
 }
@@ -574,10 +546,9 @@ function initModals() {
         const limit = parseInt(document.getElementById('campaign-limit').value) || 50;
         if (!name) { showToast('warning', 'Name Required'); return; }
         const res = await apiPost('/campaigns/create', { name, daily_limit: limit });
-        if (res) {
-            showToast('success', 'Campaign Created', `"${name}" is ready.`);
-            logActivity('generated', `Campaign "${name}" created`);
-            campaignModal.classList.remove('open');
+    if (res) {
+        showToast('success', 'Campaign Created', `"${name}" is ready.`);
+        campaignModal.classList.remove('open');
             document.getElementById('campaign-name').value = '';
             loadCampaigns();
         }
@@ -593,10 +564,9 @@ function initModals() {
         const name = document.getElementById('account-name').value.trim();
         if (!email) { showToast('warning', 'Email Required'); return; }
         const res = await apiPost('/accounts/add', { email, display_name: name || null });
-        if (res) {
-            showToast('success', 'Account Added', `${email} connected successfully.`);
-            logActivity('sent', `Gmail account ${email} connected`);
-            accountModal.classList.remove('open');
+    if (res) {
+        showToast('success', 'Account Added', `${email} connected successfully.`);
+        accountModal.classList.remove('open');
             document.getElementById('account-email').value = '';
             document.getElementById('account-name').value = '';
             loadAccounts();
@@ -630,7 +600,6 @@ function initActions() {
         const res = await apiPost('/replies/check');
         if (res) {
             showToast('info', 'Checking Replies', 'Scanning all inboxes...');
-            logActivity('replied', 'Inbox scan triggered');
         }
     });
 
@@ -642,7 +611,6 @@ function initActions() {
         const res = await apiPost('/leads/upload-csv', fd);
         if (res) {
             showToast('success', 'CSV Imported', `${res.imported} leads imported.`);
-            logActivity('leads', `<strong>${res.imported}</strong> leads imported from CSV`);
             loadLeads();
         }
         e.target.value = '';
@@ -654,7 +622,6 @@ function initActions() {
         const res = await fetch(`${API}/leads/enrich`, { method: 'POST', headers });
         if (res.ok) {
             showToast('info', 'Enrichment Started', 'Running in background...');
-            logActivity('enriched', 'Lead enrichment started');
         } else {
             showToast('error', 'Request Failed', `HTTP ${res.status}`);
         }
@@ -670,7 +637,6 @@ function initActions() {
         const res = await apiPost('/emails/generate', fd, true);
         if (res) {
             showToast('info', 'Generation Started', 'AI is writing your emails...');
-            logActivity('generated', 'AI email generation started');
         }
     });
 
@@ -678,7 +644,6 @@ function initActions() {
         const res = await apiPost('/followups/check', new FormData(), true);
         if (res) {
             showToast('info', 'Follow-Up Check', 'Queuing eligible follow-ups...');
-            logActivity('followup', 'Follow-up check triggered');
         }
     });
 

@@ -9,6 +9,7 @@ from typing import Optional
 
 from config.settings import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_BASE_URL
 from database.models import ReplyClassification
+from modules.ai_engine.ai_utils import get_openai_client, clean_json_response
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,7 @@ def classify_reply(reply_body: str) -> tuple[ReplyClassification, float]:
         return ReplyClassification.UNKNOWN, 0.5
 
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+        client = get_openai_client()
 
         response = client.chat.completions.create(
             model=OPENAI_MODEL,
@@ -60,12 +60,7 @@ def classify_reply(reply_body: str) -> tuple[ReplyClassification, float]:
         )
 
         result_text = response.choices[0].message.content.strip()
-
-        # Clean markdown wrapping
-        if result_text.startswith("```"):
-            result_text = result_text.split("\n", 1)[1].rsplit("```", 1)[0]
-
-        result = json.loads(result_text)
+        result = clean_json_response(result_text)
 
         classification_str = result.get("classification", "unknown")
         confidence = float(result.get("confidence", 0.5))

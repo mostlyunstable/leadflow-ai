@@ -21,6 +21,7 @@ from config.settings import (
 )
 from database.database import get_session
 from database.models import Lead, LeadStatus
+from modules.ai_engine.ai_utils import get_openai_client, clean_json_response
 
 logger = logging.getLogger(__name__)
 
@@ -187,8 +188,7 @@ class LeadEnricher:
             return self._basic_enrichment(scraped_data)
 
         try:
-            from openai import OpenAI
-            client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+            client = get_openai_client()
 
             # Build context
             context_parts = [f"Company: {company_name}"]
@@ -230,11 +230,7 @@ class LeadEnricher:
 
             import json
             result_text = response.choices[0].message.content.strip()
-            # Clean potential markdown wrapping
-            if result_text.startswith("```"):
-                result_text = result_text.split("\n", 1)[1].rsplit("```", 1)[0]
-
-            return json.loads(result_text)
+            return clean_json_response(result_text)
 
         except Exception as e:
             logger.error(f"AI enrichment failed for {company_name}: {e}")

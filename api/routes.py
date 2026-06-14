@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Header, BackgroundTasks
@@ -280,7 +281,6 @@ async def start_campaign(campaign_id: int, background_tasks: BackgroundTasks, db
     if not campaign:
         raise HTTPException(404, "Campaign not found")
 
-    from datetime import datetime, timezone
     campaign.status = CampaignStatus.ACTIVE
     campaign.started_at = datetime.now(timezone.utc)
     db.commit()
@@ -309,7 +309,6 @@ async def pause_campaign(campaign_id: int, db: Session = Depends(get_db_session)
     if not campaign:
         raise HTTPException(404, "Campaign not found")
 
-    from datetime import datetime, timezone
     campaign.status = CampaignStatus.PAUSED
     campaign.paused_at = datetime.now(timezone.utc)
     db.commit()

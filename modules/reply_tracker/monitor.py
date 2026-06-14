@@ -5,6 +5,7 @@ Matches replies to sent emails via thread_id, detects bounces.
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from database.database import get_session
 from database.models import (
@@ -39,11 +40,15 @@ class InboxMonitor:
     def __init__(self):
         self._clients: dict[str, GmailClient] = {}
 
-    def _get_client(self, account_email: str) -> GmailClient:
-        """Get or create a Gmail client for an account."""
+    def _get_client(self, account_email: str) -> Optional[GmailClient]:
+        """Get or create a Gmail client for an account. Returns None if auth fails."""
         if account_email not in self._clients:
             client = GmailClient(account_email)
-            client.authenticate()
+            try:
+                client.authenticate()
+            except Exception as e:
+                logger.error(f"Failed to authenticate {account_email} for inbox check: {e}")
+                return None
             self._clients[account_email] = client
         return self._clients[account_email]
 
@@ -85,6 +90,8 @@ class InboxMonitor:
             dict with new_replies, bounces counts
         """
         client = self._get_client(account_email)
+        if not client:
+            return result
         result = {"new_replies": 0, "bounces": 0}
 
         # Get all thread IDs we've sent to from this account
