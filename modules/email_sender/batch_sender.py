@@ -156,9 +156,9 @@ class BatchSender:
             # Get available Gmail account (warmup-aware if campaign_id provided)
             gmail_client = self.account_manager.get_available_account(campaign_id=campaign_id)
             if not gmail_client:
-                logger.error("No available Gmail accounts for sending")
-                record.status = EmailStatus.FAILED
-                record.error_message = "No available Gmail accounts"
+                logger.warning("No available Gmail accounts — leaving email as queued for retry")
+                record.status = EmailStatus.QUEUED
+                record.error_message = "No available Gmail accounts — will retry"
                 return False
 
             account_email = gmail_client.account_email

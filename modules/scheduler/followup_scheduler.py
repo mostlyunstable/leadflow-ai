@@ -48,7 +48,7 @@ class FollowUpScheduler:
                     logger.info(f"Campaign {campaign_id} not active, skipping follow-ups")
                     return stats
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         followup_1_cutoff = now - timedelta(days=FOLLOWUP_1_DAYS)
         followup_2_cutoff = now - timedelta(days=FOLLOWUP_2_DAYS)
 

@@ -81,14 +81,20 @@ def clean_json_response(text: str) -> dict:
             try:
                 return json.loads(candidate)
             except json.JSONDecodeError:
-                # Last resort: manually extract subject and body
-                subject_match = re.search(r'"subject"\s*:\s*"((?:[^"\\]|\\.)*)"', text)
-                body_match = re.search(
-                    r'"body"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.DOTALL
-                )
-                if subject_match and body_match:
-                    return {
-                        "subject": subject_match.group(1),
-                        "body": body_match.group(1).replace("\\n", "\n"),
-                    }
+                pass
+
+        # Handle truncated JSON: response cut off mid-string
+        # Find subject and body values even without closing quotes
+        subject_match = re.search(r'"subject"\s*:\s*"([^"]*)"', text)
+        body_match = re.search(r'"body"\s*:\s*"((?:[^"\\]|\\.)*)(?:"|$)', text, re.DOTALL)
+        if subject_match and body_match:
+            body = body_match.group(1).replace("\\n", "\n")
+            # Close any unclosed sentence
+            if body and not body.endswith(('.', '!', '?')):
+                body += '.'
+            return {
+                "subject": subject_match.group(1),
+                "body": body,
+            }
+
         raise ValueError(f"Could not parse JSON from response: {text[:200]}")

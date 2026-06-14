@@ -167,6 +167,42 @@ async def list_leads(
     }
 
 
+@router.get("/leads/{lead_id}")
+async def get_lead(lead_id: int, db: Session = Depends(get_db_session)):
+    """Get a single lead with all details."""
+    lead = db.get(Lead, lead_id)
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    emails = [
+        {
+            "id": e.id,
+            "subject": e.subject,
+            "body": e.body,
+            "email_type": e.email_type.value,
+            "status": e.status.value,
+            "sent_at": e.sent_at.isoformat() if e.sent_at else None,
+        }
+        for e in lead.emails
+    ]
+    return {
+        "id": lead.id,
+        "email": lead.email,
+        "first_name": lead.first_name,
+        "last_name": lead.last_name,
+        "company_name": lead.company_name,
+        "industry": lead.industry,
+        "website": lead.website,
+        "status": lead.status.value,
+        "enriched": lead.enriched,
+        "company_description": lead.company_description,
+        "key_offering": lead.key_offering,
+        "source": lead.source,
+        "campaign_id": lead.campaign_id,
+        "created_at": lead.created_at.isoformat() if lead.created_at else None,
+        "emails": emails,
+    }
+
+
 @router.delete("/leads/{lead_id}")
 async def delete_lead(lead_id: int, db: Session = Depends(get_db_session)):
     """Delete a lead and all associated records."""

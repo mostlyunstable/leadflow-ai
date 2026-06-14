@@ -136,9 +136,7 @@ class AccountManager:
                             client.authenticate()
                             self._clients[account.email] = client
                         except Exception as e:
-                            account.is_healthy = False
-                            account.error_message = str(e)
-                            logger.error(f"Failed to auth {account.email}: {e}")
+                            logger.warning(f"Failed to auth {account.email}, skipping: {e}")
                             continue
 
                     self._round_robin_index = (idx + 1) % len(accounts)

@@ -3,6 +3,7 @@ AI Email Generator — Creates hyper-personalized cold emails.
 Generates subject lines, email bodies, and ensures deliverability compliance.
 """
 
+import json
 import logging
 from typing import Optional
 
