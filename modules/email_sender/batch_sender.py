@@ -67,9 +67,6 @@ class BatchSender:
                 .filter(
                     EmailRecord.status.in_([EmailStatus.PENDING, EmailStatus.QUEUED]),
                     Lead.status.notin_([
-                        LeadStatus.EMAILED,
-                        LeadStatus.FOLLOWUP_1_SENT,
-                        LeadStatus.FOLLOWUP_2_SENT,
                         LeadStatus.REPLIED,
                         LeadStatus.BOUNCED,
                         LeadStatus.UNSUBSCRIBED,
