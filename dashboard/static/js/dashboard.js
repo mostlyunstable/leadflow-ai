@@ -1,6 +1,6 @@
 /**
  * LeadFlow AI — Dashboard JavaScript
- * Handles all UI interactions, API calls, and real-time updates.
+ * Premium SaaS Dashboard — All UI interactions, API calls, and real-time updates.
  */
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -14,6 +14,8 @@ const state = {
     emailsPage: 1,
     repliesPage: 1,
     perPage: 50,
+    leadSearchQuery: '',
+    activityLog: [],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -24,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initNavigation();
     initModals();
     initActions();
+    initSlideOvers();
     loadOverview();
 });
 
@@ -40,7 +43,6 @@ function initNavigation() {
         });
     });
 
-    // Mobile menu toggle
     const toggle = document.getElementById('menu-toggle');
     const sidebar = document.getElementById('sidebar');
     if (toggle) {
@@ -49,37 +51,34 @@ function initNavigation() {
 }
 
 function switchSection(section) {
-    // Update nav
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     const navItem = document.querySelector(`[data-section="${section}"]`);
     if (navItem) navItem.classList.add('active');
 
-    // Update sections
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
     const sectionEl = document.getElementById(`section-${section}`);
     if (sectionEl) sectionEl.classList.add('active');
 
-    // Update title
     const titles = {
         overview: 'Overview', leads: 'Lead Management', campaigns: 'Campaigns',
         emails: 'Email Log', replies: 'Reply Tracking', accounts: 'Gmail Accounts',
+        analytics: 'Analytics',
     };
     document.getElementById('page-title').textContent = titles[section] || section;
 
     state.currentSection = section;
 
-    // Load section data
-    const loaders = {
-        overview: loadOverview,
+        const loaders = {
+            overview: loadOverview,
         leads: loadLeads,
         campaigns: loadCampaigns,
         emails: loadEmails,
         replies: loadReplies,
         accounts: loadAccounts,
+        analytics: loadAnalytics,
     };
     if (loaders[section]) loaders[section]();
 
-    // Close mobile sidebar
     document.getElementById('sidebar').classList.remove('open');
 }
 
@@ -92,15 +91,7 @@ let _apiKeyChecked = false;
 
 async function getApiKey() {
     if (_apiKeyChecked) return _apiKeyCache || '';
-    
-    let key = localStorage.getItem('leadflow_api_key');
-    if (key) {
-        _apiKeyCache = key;
-        _apiKeyChecked = true;
-        return key;
-    }
-    
-    // Test without API key first
+
     try {
         const res = await fetch(`${API}/stats`, { headers: {} });
         if (res.ok) {
@@ -109,13 +100,11 @@ async function getApiKey() {
             return '';
         }
     } catch (e) {}
-    
-    // Need API key
-    key = prompt("Enter API Key (leave blank if none configured):");
-    if (key) localStorage.setItem('leadflow_api_key', key);
-    _apiKeyCache = key || '';
+
+    const key = prompt("Enter API Key (leave blank if none configured):");
+    if (key) _apiKeyCache = key;
     _apiKeyChecked = true;
-    return _apiKeyCache;
+    return _apiKeyCache || '';
 }
 
 async function apiGet(path) {
@@ -138,7 +127,10 @@ function setLoading(containerId, loading) {
     if (!el) return;
     if (loading) {
         el.dataset.prevContent = el.innerHTML;
-        el.innerHTML = '<div class="loading-spinner" style="text-align:center;padding:2rem;color:#94a3b8;">Loading...</div>';
+        el.innerHTML = `<div style="text-align:center;padding:2rem;color:#94a3b8;">
+            <div class="spinner" style="margin:0 auto 12px"></div>
+            Loading...
+        </div>`;
     } else if (el.dataset.prevContent) {
         el.innerHTML = el.dataset.prevContent;
         delete el.dataset.prevContent;
@@ -148,7 +140,7 @@ function setLoading(containerId, loading) {
 async function apiPost(path, data = {}, isForm = true) {
     try {
         const apiKey = await getApiKey();
-        let options = { 
+        let options = {
             method: 'POST',
             headers: apiKey ? { 'X-API-Key': apiKey } : {}
         };
@@ -176,6 +168,15 @@ async function apiPost(path, data = {}, isForm = true) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  ACTIVITY LOG
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function logActivity(type, text) {
+    state.activityLog.unshift({ type, text, time: new Date() });
+    if (state.activityLog.length > 100) state.activityLog.length = 100;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  OVERVIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -186,73 +187,64 @@ async function loadOverview() {
     const o = data.overview;
     const r = data.rates;
 
-    // Stat cards
-    animateValue('val-total-leads', o.total_leads);
-    animateValue('val-total-sent', o.total_sent);
-    animateValue('val-total-replies', o.total_replies);
+    document.getElementById('val-total-leads').textContent = o.total_leads;
+    document.getElementById('val-total-sent').textContent = o.total_sent;
+    document.getElementById('val-total-replies').textContent = o.total_replies;
     document.getElementById('val-reply-rate').textContent = `${r.reply_rate}%`;
 
-    // Rate bars
-    document.getElementById('val-bounce-rate').textContent = `${r.bounce_rate}%`;
-    document.getElementById('bar-bounce').style.width = `${Math.min(r.bounce_rate, 100)}%`;
-
-    document.getElementById('val-interested-rate').textContent = `${r.interested_rate}%`;
-    document.getElementById('bar-interested').style.width = `${Math.min(r.interested_rate, 100)}%`;
-
-    document.getElementById('val-pending').textContent = o.total_pending;
-    const pendingPct = o.total_leads > 0 ? (o.total_pending / o.total_leads * 100) : 0;
-    document.getElementById('bar-pending').style.width = `${Math.min(pendingPct, 100)}%`;
-
-    // Pipeline chart
-    renderPipeline(data.lead_status_breakdown);
+    renderPipelineBreakdown(data.lead_status_breakdown, o.total_leads);
+    loadOverviewCounts();
 }
 
-function renderPipeline(breakdown) {
-    const chart = document.getElementById('pipeline-chart');
-    if (!chart) return;
+async function loadOverviewCounts() {
+    const [campaignData, accountData] = await Promise.all([
+        apiGet('/campaigns'),
+        apiGet('/accounts'),
+    ]);
+    if (campaignData) {
+        const active = campaignData.campaigns.filter(c => c.status === 'active').length;
+        document.getElementById('val-active-campaigns').textContent = active;
+    }
+    if (accountData) {
+        document.getElementById('val-accounts-count').textContent = accountData.accounts.length;
+    }
+}
+
+function renderPipelineBreakdown(breakdown, total) {
+    const el = document.getElementById('pipeline-breakdown');
+    if (!el) return;
 
     const stages = [
-        { key: 'new', label: 'New', color: 'var(--color-blue)' },
-        { key: 'enriched', label: 'Enriched', color: 'var(--color-cyan)' },
-        { key: 'email_generated', label: 'Generated', color: 'var(--color-purple)' },
-        { key: 'emailed', label: 'Emailed', color: 'var(--color-amber)' },
-        { key: 'followup_1_sent', label: 'FU-1', color: '#fb923c' },
-        { key: 'followup_2_sent', label: 'FU-2', color: '#f97316' },
-        { key: 'replied', label: 'Replied', color: 'var(--color-green)' },
-        { key: 'bounced', label: 'Bounced', color: 'var(--color-red)' },
+        { key: 'new', label: 'New' },
+        { key: 'enriched', label: 'Enriched' },
+        { key: 'email_generated', label: 'Email Generated' },
+        { key: 'emailed', label: 'Emailed' },
+        { key: 'followup_1_sent', label: 'Follow-Up 1' },
+        { key: 'followup_2_sent', label: 'Follow-Up 2' },
+        { key: 'replied', label: 'Replied' },
+        { key: 'bounced', label: 'Bounced' },
     ];
 
-    const maxVal = Math.max(1, ...stages.map(s => breakdown[s.key] || 0));
+    const rows = stages
+        .map(s => ({ ...s, count: breakdown[s.key] || 0 }))
+        .filter(s => s.count > 0);
 
-    chart.innerHTML = stages.map(s => {
-        const val = breakdown[s.key] || 0;
-        const height = Math.max(4, (val / maxVal) * 140);
-        return `
-            <div class="pipeline-bar-group">
-                <div class="pipeline-bar" style="height:${height}px; background:${s.color}">
-                    <span class="pipeline-bar-value">${val}</span>
-                </div>
-                <span class="pipeline-label">${s.label}</span>
-            </div>
-        `;
-    }).join('');
-}
-
-function animateValue(id, target) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const start = parseInt(el.textContent) || 0;
-    const duration = 600;
-    const startTime = performance.now();
-
-    function update(currentTime) {
-        const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        const eased = 1 - Math.pow(1 - progress, 3);
-        el.textContent = Math.round(start + (target - start) * eased);
-        if (progress < 1) requestAnimationFrame(update);
+    if (rows.length === 0) {
+        el.innerHTML = '<div class="empty-state">No leads in pipeline</div>';
+        return;
     }
-    requestAnimationFrame(update);
+
+    el.innerHTML = `<table class="data-table">
+        <thead><tr><th>Status</th><th style="text-align:right">Count</th><th style="text-align:right">%</th></tr></thead>
+        <tbody>${rows.map(s => {
+            const pct = total > 0 ? Math.round((s.count / total) * 100) : 0;
+            return `<tr>
+                <td>${s.label}</td>
+                <td style="text-align:right;font-weight:600">${s.count}</td>
+                <td style="text-align:right;color:var(--text-muted)">${pct}%</td>
+            </tr>`;
+        }).join('')}</tbody>
+    </table>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -267,21 +259,32 @@ async function loadLeads() {
     const data = await apiGet(`/leads?${params}`);
     if (!data) return;
 
+    let leads = data.leads;
+    if (state.leadSearchQuery) {
+        const q = state.leadSearchQuery.toLowerCase();
+        leads = leads.filter(l =>
+            l.first_name.toLowerCase().includes(q) ||
+            l.last_name.toLowerCase().includes(q) ||
+            l.email.toLowerCase().includes(q) ||
+            l.company_name.toLowerCase().includes(q)
+        );
+    }
+
     const tbody = document.getElementById('leads-tbody');
-    if (!data.leads.length) {
+    if (!leads.length) {
         tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No leads found. Upload a CSV to get started.</td></tr>';
         return;
     }
 
-    tbody.innerHTML = data.leads.map(l => `
-        <tr>
+    tbody.innerHTML = leads.map(l => `
+        <tr onclick="openLeadDetail(${l.id}, '${esc(l.first_name)}', '${esc(l.last_name)}', '${esc(l.email)}', '${esc(l.company_name)}', '${esc(l.industry || '')}')" data-lead-id="${l.id}">
             <td style="color:var(--text-primary);font-weight:500">${esc(l.first_name)} ${esc(l.last_name)}</td>
             <td>${esc(l.email)}</td>
             <td>${esc(l.company_name)}</td>
             <td>${esc(l.industry || '—')}</td>
             <td><span class="badge badge-${l.status}">${l.status.replace(/_/g, ' ')}</span></td>
             <td><span class="badge badge-${l.source === 'csv' ? 'new' : 'enriched'}">${l.source}</span></td>
-            <td><button class="btn btn-danger btn-sm" onclick="deleteLead(${l.id})">Delete</button></td>
+            <td><button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteLead(${l.id})">Delete</button></td>
         </tr>
     `).join('');
 
@@ -293,7 +296,19 @@ async function deleteLead(id) {
     const apiKey = await getApiKey();
     const headers = apiKey ? { 'X-Api-Key': apiKey } : {};
     const res = await fetch(`${API}/leads/${id}`, { method: 'DELETE', headers });
-    if (res.ok) { showToast('success', 'Lead Deleted'); loadLeads(); }
+    if (res.ok) {
+        showToast('success', 'Lead Deleted');
+        logActivity('leads', `Lead #${id} deleted`);
+        loadLeads();
+    }
+}
+
+function openLeadDetail(id, firstName, lastName, email, company, industry) {
+    document.getElementById('lead-detail-name').textContent = `${firstName} ${lastName}`;
+    document.getElementById('detail-email').textContent = email;
+    document.getElementById('detail-company').textContent = company || '—';
+    document.getElementById('detail-industry').textContent = industry || '—';
+    document.getElementById('lead-detail-overlay').classList.add('open');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -310,48 +325,68 @@ async function loadCampaigns() {
         return;
     }
 
-    grid.innerHTML = data.campaigns.map(c => `
-        <div class="campaign-card">
-            <div class="campaign-card-header">
-                <span class="campaign-card-name">${esc(c.name)}</span>
-                <span class="badge badge-${c.status}">${c.status}</span>
+    grid.innerHTML = data.campaigns.map(c => {
+        const progress = c.total_leads > 0 ? Math.round((c.total_sent / c.total_leads) * 100) : 0;
+        return `
+            <div class="campaign-card">
+                <div class="campaign-card-header">
+                    <span class="campaign-card-name">${esc(c.name)}</span>
+                    <span class="badge badge-${c.status}">${c.status}</span>
+                </div>
+                <div class="campaign-stats">
+                    <div class="campaign-stat">
+                        <span class="campaign-stat-value">${c.total_leads}</span>
+                        <span class="campaign-stat-label">Leads</span>
+                    </div>
+                    <div class="campaign-stat">
+                        <span class="campaign-stat-value">${c.total_sent}</span>
+                        <span class="campaign-stat-label">Sent</span>
+                    </div>
+                    <div class="campaign-stat">
+                        <span class="campaign-stat-value">${c.total_replies || 0}</span>
+                        <span class="campaign-stat-label">Replies</span>
+                    </div>
+                    <div class="campaign-stat">
+                        <span class="campaign-stat-value">${c.reply_rate}%</span>
+                        <span class="campaign-stat-label">Reply Rate</span>
+                    </div>
+                </div>
+                <div class="campaign-progress">
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width:${Math.min(progress, 100)}%"></div>
+                    </div>
+                    <div class="progress-label">
+                        <span>${c.total_sent} / ${c.total_leads} sent</span>
+                        <span>${progress}%</span>
+                    </div>
+                </div>
+                <div class="campaign-card-actions">
+                    ${c.status === 'active'
+                        ? `<button class="btn btn-secondary btn-sm" onclick="pauseCampaign(${c.id})">Pause</button>`
+                        : `<button class="btn btn-primary btn-sm" onclick="startCampaign(${c.id})">Start</button>`
+                    }
+                </div>
             </div>
-            <div class="campaign-stats">
-                <div class="campaign-stat">
-                    <span class="campaign-stat-value">${c.total_leads}</span>
-                    <span class="campaign-stat-label">Leads</span>
-                </div>
-                <div class="campaign-stat">
-                    <span class="campaign-stat-value">${c.total_sent}</span>
-                    <span class="campaign-stat-label">Sent</span>
-                </div>
-                <div class="campaign-stat">
-                    <span class="campaign-stat-value">${c.reply_rate}%</span>
-                    <span class="campaign-stat-label">Reply Rate</span>
-                </div>
-                <div class="campaign-stat">
-                    <span class="campaign-stat-value">${c.total_bounces}</span>
-                    <span class="campaign-stat-label">Bounces</span>
-                </div>
-            </div>
-            <div class="campaign-card-actions">
-                ${c.status === 'active'
-                    ? `<button class="btn btn-secondary btn-sm" onclick="pauseCampaign(${c.id})">Pause</button>`
-                    : `<button class="btn btn-primary btn-sm" onclick="startCampaign(${c.id})">Start</button>`
-                }
-            </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 async function startCampaign(id) {
     const res = await apiPost(`/campaigns/${id}/start`);
-    if (res) { showToast('success', 'Campaign Started', 'Emails are being sent in the background.'); loadCampaigns(); }
+    if (res) {
+        showToast('success', 'Campaign Started', 'Emails are being sent in the background.');
+        logActivity('sent', `Campaign #${id} started`);
+        loadCampaigns();
+    }
 }
 
 async function pauseCampaign(id) {
     const res = await apiPost(`/campaigns/${id}/pause`);
-    if (res) { showToast('info', 'Campaign Paused'); loadCampaigns(); }
+    if (res) {
+        showToast('info', 'Campaign Paused');
+        logActivity('followup', `Campaign #${id} paused`);
+        loadCampaigns();
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -375,7 +410,7 @@ async function loadEmails() {
     }
 
     tbody.innerHTML = data.emails.map(e => `
-        <tr>
+        <tr onclick="openEmailPreview('${esc(e.subject)}', '${esc(e.body)}', '${e.email_type}', '${e.status}', '${esc(e.gmail_account || '')}', '${e.sent_at || ''}')" style="cursor:pointer">
             <td style="color:var(--text-primary);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.subject)}</td>
             <td><span class="badge badge-${e.email_type}">${e.email_type.replace(/_/g, ' ')}</span></td>
             <td><span class="badge badge-${e.status}">${e.status}</span></td>
@@ -385,6 +420,16 @@ async function loadEmails() {
     `).join('');
 
     renderPagination('emails-pagination', data.total, state.emailsPage, (p) => { state.emailsPage = p; loadEmails(); });
+}
+
+function openEmailPreview(subject, body, type, status, account, sentAt) {
+    document.getElementById('preview-subject').textContent = subject || '—';
+    document.getElementById('preview-body').textContent = body || '—';
+    document.getElementById('preview-type').textContent = type.replace(/_/g, ' ');
+    document.getElementById('preview-status').textContent = status;
+    document.getElementById('preview-account').textContent = account || '—';
+    document.getElementById('preview-sent-at').textContent = sentAt ? new Date(sentAt).toLocaleString() : '—';
+    document.getElementById('email-preview-overlay').classList.add('open');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -462,11 +507,63 @@ async function loadAccounts() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  ANALYTICS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function loadAnalytics() {
+    const data = await apiGet('/stats/optimization');
+    if (!data) return;
+
+    document.getElementById('analytics-total-templates').textContent = data.total_templates;
+    document.getElementById('analytics-total-uses').textContent = data.total_uses;
+    document.getElementById('analytics-total-replies').textContent = data.total_replies;
+    document.getElementById('analytics-overall-rate').textContent = `${data.overall_reply_rate}%`;
+
+    const templatesEl = document.getElementById('top-templates');
+    if (data.top_performers.length === 0) {
+        templatesEl.innerHTML = '<div class="activity-empty">No templates with enough data yet</div>';
+    } else {
+        templatesEl.innerHTML = data.top_performers.map(t => `
+            <div class="template-item">
+                <div class="template-info">
+                    <div class="template-name">${esc(t.subject)}</div>
+                    <div class="template-meta">Used ${t.uses} times · ${t.replies} replies</div>
+                </div>
+                <div class="template-score">${t.score}%</div>
+            </div>
+        `).join('');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SLIDE-OVERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function initSlideOvers() {
+    document.getElementById('lead-detail-close')?.addEventListener('click', () => {
+        document.getElementById('lead-detail-overlay').classList.remove('open');
+    });
+    document.getElementById('lead-detail-overlay')?.addEventListener('click', (e) => {
+        if (e.target.id === 'lead-detail-overlay') {
+            document.getElementById('lead-detail-overlay').classList.remove('open');
+        }
+    });
+
+    document.getElementById('email-preview-close')?.addEventListener('click', () => {
+        document.getElementById('email-preview-overlay').classList.remove('open');
+    });
+    document.getElementById('email-preview-overlay')?.addEventListener('click', (e) => {
+        if (e.target.id === 'email-preview-overlay') {
+            document.getElementById('email-preview-overlay').classList.remove('open');
+        }
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  MODALS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function initModals() {
-    // New Campaign Modal
     const campaignModal = document.getElementById('modal-new-campaign');
     document.getElementById('btn-new-campaign')?.addEventListener('click', () => campaignModal.classList.add('open'));
     document.getElementById('modal-close-campaign')?.addEventListener('click', () => campaignModal.classList.remove('open'));
@@ -479,13 +576,13 @@ function initModals() {
         const res = await apiPost('/campaigns/create', { name, daily_limit: limit });
         if (res) {
             showToast('success', 'Campaign Created', `"${name}" is ready.`);
+            logActivity('generated', `Campaign "${name}" created`);
             campaignModal.classList.remove('open');
             document.getElementById('campaign-name').value = '';
             loadCampaigns();
         }
     });
 
-    // Add Account Modal
     const accountModal = document.getElementById('modal-add-account');
     document.getElementById('btn-add-account')?.addEventListener('click', () => accountModal.classList.add('open'));
     document.getElementById('modal-close-account')?.addEventListener('click', () => accountModal.classList.remove('open'));
@@ -498,6 +595,7 @@ function initModals() {
         const res = await apiPost('/accounts/add', { email, display_name: name || null });
         if (res) {
             showToast('success', 'Account Added', `${email} connected successfully.`);
+            logActivity('sent', `Gmail account ${email} connected`);
             accountModal.classList.remove('open');
             document.getElementById('account-email').value = '';
             document.getElementById('account-name').value = '';
@@ -505,7 +603,6 @@ function initModals() {
         }
     });
 
-    // Close modals on overlay click
     document.querySelectorAll('.modal-overlay').forEach(overlay => {
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) overlay.classList.remove('open');
@@ -518,23 +615,25 @@ function initModals() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function initActions() {
-    // Refresh
     document.getElementById('btn-refresh')?.addEventListener('click', () => {
         const loaders = {
-            overview: loadOverview, leads: loadLeads, campaigns: loadCampaigns,
+        overview: loadOverview,
+            leads: loadLeads, campaigns: loadCampaigns,
             emails: loadEmails, replies: loadReplies, accounts: loadAccounts,
+            analytics: loadAnalytics,
         };
         if (loaders[state.currentSection]) loaders[state.currentSection]();
         showToast('info', 'Refreshed');
     });
 
-    // Check replies
     document.getElementById('btn-check-replies')?.addEventListener('click', async () => {
         const res = await apiPost('/replies/check');
-        if (res) showToast('info', 'Checking Replies', 'Scanning all inboxes...');
+        if (res) {
+            showToast('info', 'Checking Replies', 'Scanning all inboxes...');
+            logActivity('replied', 'Inbox scan triggered');
+        }
     });
 
-    // CSV upload
     document.getElementById('csv-file-input')?.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -543,18 +642,24 @@ function initActions() {
         const res = await apiPost('/leads/upload-csv', fd);
         if (res) {
             showToast('success', 'CSV Imported', `${res.imported} leads imported.`);
+            logActivity('leads', `<strong>${res.imported}</strong> leads imported from CSV`);
             loadLeads();
         }
         e.target.value = '';
     });
 
-    // Enrich
     document.getElementById('btn-enrich')?.addEventListener('click', async () => {
-        const res = await apiPost('/leads/enrich');
-        if (res) showToast('info', 'Enrichment Started', 'Running in background...');
+        const apiKey = await getApiKey();
+        const headers = apiKey ? { 'X-API-Key': apiKey } : {};
+        const res = await fetch(`${API}/leads/enrich`, { method: 'POST', headers });
+        if (res.ok) {
+            showToast('info', 'Enrichment Started', 'Running in background...');
+            logActivity('enriched', 'Lead enrichment started');
+        } else {
+            showToast('error', 'Request Failed', `HTTP ${res.status}`);
+        }
     });
 
-    // Generate emails
     document.getElementById('btn-generate-emails')?.addEventListener('click', async () => {
         const campaignData = await apiGet('/campaigns');
         const activeCampaign = campaignData?.campaigns?.find(c => c.status === 'active' || c.status === 'paused');
@@ -563,16 +668,20 @@ function initActions() {
         fd.append('limit', 50);
         if (campaignId) fd.append('campaign_id', campaignId);
         const res = await apiPost('/emails/generate', fd, true);
-        if (res) showToast('info', 'Generation Started', 'AI is writing your emails...');
+        if (res) {
+            showToast('info', 'Generation Started', 'AI is writing your emails...');
+            logActivity('generated', 'AI email generation started');
+        }
     });
 
-    // Check follow-ups
     document.getElementById('btn-check-followups')?.addEventListener('click', async () => {
         const res = await apiPost('/followups/check', new FormData(), true);
-        if (res) showToast('info', 'Follow-Up Check', 'Queuing eligible follow-ups...');
+        if (res) {
+            showToast('info', 'Follow-Up Check', 'Queuing eligible follow-ups...');
+            logActivity('followup', 'Follow-up check triggered');
+        }
     });
 
-    // Health check
     document.getElementById('btn-health-check')?.addEventListener('click', async () => {
         const res = await apiPost('/accounts/health-check');
         if (res) {
@@ -581,11 +690,16 @@ function initActions() {
         }
     });
 
-    // Filters
     document.getElementById('lead-status-filter')?.addEventListener('change', () => { state.leadsPage = 1; loadLeads(); });
     document.getElementById('email-status-filter')?.addEventListener('change', () => { state.emailsPage = 1; loadEmails(); });
     document.getElementById('email-type-filter')?.addEventListener('change', () => { state.emailsPage = 1; loadEmails(); });
     document.getElementById('reply-class-filter')?.addEventListener('change', () => { state.repliesPage = 1; loadReplies(); });
+
+    document.getElementById('lead-search')?.addEventListener('input', debounce((e) => {
+        state.leadSearchQuery = e.target.value;
+        state.leadsPage = 1;
+        loadLeads();
+    }, 300));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -602,6 +716,14 @@ function esc(str) {
         .replace(/'/g, '&#39;');
 }
 
+function debounce(fn, ms) {
+    let timer;
+    return function(...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), ms);
+    };
+}
+
 function renderPagination(containerId, total, currentPage, onPageChange) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -610,7 +732,7 @@ function renderPagination(containerId, total, currentPage, onPageChange) {
     if (totalPages <= 1) { container.innerHTML = ''; return; }
 
     let html = '';
-    html += `<button ${currentPage <= 1 ? 'disabled' : ''} onclick="void(0)">Prev</button>`;
+    html += `<button ${currentPage <= 1 ? 'disabled' : ''}>Prev</button>`;
 
     const maxVisible = 5;
     let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
@@ -621,7 +743,7 @@ function renderPagination(containerId, total, currentPage, onPageChange) {
         html += `<button class="${i === currentPage ? 'active' : ''}" data-page="${i}">${i}</button>`;
     }
 
-    html += `<button ${currentPage >= totalPages ? 'disabled' : ''} onclick="void(0)">Next</button>`;
+    html += `<button ${currentPage >= totalPages ? 'disabled' : ''}>Next</button>`;
     container.innerHTML = html;
 
     container.querySelectorAll('button').forEach(btn => {
@@ -638,8 +760,6 @@ function renderPagination(containerId, total, currentPage, onPageChange) {
         });
     });
 }
-
-// ── Toast Notifications ─────────────────────────────────────────────────────
 
 function showToast(type, title, message = '') {
     const container = document.getElementById('toast-container');

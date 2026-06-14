@@ -7,11 +7,11 @@
     <meta name="description" content="AI-powered cold email outreach system with personalized emails, automated follow-ups, and reply tracking.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
-    <!-- ═══ Sidebar ═══ -->
+    <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-brand">
             <div class="brand-icon">
@@ -47,6 +47,10 @@
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
                 <span>Accounts</span>
             </a>
+            <a href="#" class="nav-item" data-section="analytics" id="nav-analytics">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                <span>Analytics</span>
+            </a>
         </nav>
 
         <div class="sidebar-footer">
@@ -57,7 +61,7 @@
         </div>
     </aside>
 
-    <!-- ═══ Main Content ═══ -->
+    <!-- Main Content -->
     <main class="main-content">
         <!-- Header -->
         <header class="top-bar">
@@ -80,94 +84,57 @@
 
         <div class="content-area" id="content-area">
 
-            <!-- ═══ OVERVIEW SECTION ═══ -->
+            <!-- OVERVIEW SECTION -->
             <section class="section active" id="section-overview">
-                <!-- Stat Cards -->
+                <!-- KPI Cards -->
                 <div class="stats-grid">
-                    <div class="stat-card" id="stat-leads">
-                        <div class="stat-icon icon-purple">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-                        </div>
-                        <div class="stat-info">
-                            <span class="stat-value" id="val-total-leads">0</span>
-                            <span class="stat-label">Total Leads</span>
-                        </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="val-total-leads">0</span>
+                        <span class="stat-label">Total Leads</span>
                     </div>
-                    <div class="stat-card" id="stat-sent">
-                        <div class="stat-icon icon-blue">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
-                        </div>
-                        <div class="stat-info">
-                            <span class="stat-value" id="val-total-sent">0</span>
-                            <span class="stat-label">Emails Sent</span>
-                        </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="val-total-sent">0</span>
+                        <span class="stat-label">Emails Sent</span>
                     </div>
-                    <div class="stat-card" id="stat-replies">
-                        <div class="stat-icon icon-green">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
-                        </div>
-                        <div class="stat-info">
-                            <span class="stat-value" id="val-total-replies">0</span>
-                            <span class="stat-label">Replies</span>
-                        </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="val-total-replies">0</span>
+                        <span class="stat-label">Replies</span>
                     </div>
-                    <div class="stat-card" id="stat-rate">
-                        <div class="stat-icon icon-amber">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                        </div>
-                        <div class="stat-info">
-                            <span class="stat-value" id="val-reply-rate">0%</span>
-                            <span class="stat-label">Reply Rate</span>
-                        </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="val-reply-rate">0%</span>
+                        <span class="stat-label">Reply Rate</span>
                     </div>
                 </div>
 
-                <!-- Rate Cards Row -->
-                <div class="rates-grid">
-                    <div class="rate-card">
-                        <div class="rate-header">
-                            <span class="rate-title">Bounce Rate</span>
-                            <span class="rate-value" id="val-bounce-rate">0%</span>
-                        </div>
-                        <div class="rate-bar">
-                            <div class="rate-fill rate-fill-red" id="bar-bounce" style="width: 0%"></div>
-                        </div>
-                    </div>
-                    <div class="rate-card">
-                        <div class="rate-header">
-                            <span class="rate-title">Interested Rate</span>
-                            <span class="rate-value" id="val-interested-rate">0%</span>
-                        </div>
-                        <div class="rate-bar">
-                            <div class="rate-fill rate-fill-green" id="bar-interested" style="width: 0%"></div>
-                        </div>
-                    </div>
-                    <div class="rate-card">
-                        <div class="rate-header">
-                            <span class="rate-title">Pending Emails</span>
-                            <span class="rate-value" id="val-pending">0</span>
-                        </div>
-                        <div class="rate-bar">
-                            <div class="rate-fill rate-fill-blue" id="bar-pending" style="width: 0%"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Pipeline Chart -->
+                <!-- Pipeline Breakdown -->
                 <div class="card">
                     <div class="card-header">
                         <h3>Lead Pipeline</h3>
                     </div>
-                    <div class="pipeline-chart" id="pipeline-chart">
-                        <!-- Populated by JS -->
+                    <div id="pipeline-breakdown"></div>
+                </div>
+
+                <!-- Summary Row -->
+                <div class="summary-grid">
+                    <div class="stat-card">
+                        <span class="stat-value" id="val-active-campaigns">0</span>
+                        <span class="stat-label">Active Campaigns</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="val-accounts-count">0</span>
+                        <span class="stat-label">Gmail Accounts</span>
                     </div>
                 </div>
             </section>
 
-            <!-- ═══ LEADS SECTION ═══ -->
+            <!-- LEADS SECTION -->
             <section class="section" id="section-leads">
                 <div class="section-toolbar">
                     <div class="toolbar-left">
+                        <div class="search-box">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <input type="text" class="search-input" id="lead-search" placeholder="Search leads...">
+                        </div>
                         <select class="select" id="lead-status-filter">
                             <option value="">All Statuses</option>
                             <option value="new">New</option>
@@ -218,9 +185,38 @@
                     </div>
                     <div class="pagination" id="leads-pagination"></div>
                 </div>
+
+                <!-- Lead Detail Slide-Over -->
+                <div class="slide-over-overlay" id="lead-detail-overlay">
+                    <div class="slide-over" id="lead-detail-panel">
+                        <div class="slide-over-header">
+                            <h3 id="lead-detail-name">Lead Details</h3>
+                            <button class="slide-over-close" id="lead-detail-close">&times;</button>
+                        </div>
+                        <div class="slide-over-body" id="lead-detail-body">
+                            <div class="detail-section">
+                                <h4>Contact Information</h4>
+                                <div class="detail-grid">
+                                    <div class="detail-item">
+                                        <span class="detail-label">Email</span>
+                                        <span class="detail-value" id="detail-email">—</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Company</span>
+                                        <span class="detail-value" id="detail-company">—</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Industry</span>
+                                        <span class="detail-value" id="detail-industry">—</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
-            <!-- ═══ CAMPAIGNS SECTION ═══ -->
+            <!-- CAMPAIGNS SECTION -->
             <section class="section" id="section-campaigns">
                 <div class="section-toolbar">
                     <div class="toolbar-left">
@@ -265,7 +261,7 @@
                 </div>
             </section>
 
-            <!-- ═══ EMAILS SECTION ═══ -->
+            <!-- EMAILS SECTION -->
             <section class="section" id="section-emails">
                 <div class="section-toolbar">
                     <div class="toolbar-left">
@@ -310,9 +306,50 @@
                     </div>
                     <div class="pagination" id="emails-pagination"></div>
                 </div>
+
+                <!-- Email Preview Slide-Over -->
+                <div class="slide-over-overlay" id="email-preview-overlay">
+                    <div class="slide-over" id="email-preview-panel">
+                        <div class="slide-over-header">
+                            <h3>Email Preview</h3>
+                            <button class="slide-over-close" id="email-preview-close">&times;</button>
+                        </div>
+                        <div class="slide-over-body">
+                            <div class="detail-section">
+                                <h4>Subject</h4>
+                                <p class="email-preview-subject-full" id="preview-subject">—</p>
+                            </div>
+                            <div class="detail-section">
+                                <h4>Body</h4>
+                                <div class="email-preview-body-full" id="preview-body"></div>
+                            </div>
+                            <div class="detail-section">
+                                <h4>Metadata</h4>
+                                <div class="detail-grid">
+                                    <div class="detail-item">
+                                        <span class="detail-label">Type</span>
+                                        <span class="detail-value" id="preview-type">—</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Status</span>
+                                        <span class="detail-value" id="preview-status">—</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Account</span>
+                                        <span class="detail-value" id="preview-account">—</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Sent At</span>
+                                        <span class="detail-value" id="preview-sent-at">—</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
-            <!-- ═══ REPLIES SECTION ═══ -->
+            <!-- REPLIES SECTION -->
             <section class="section" id="section-replies">
                 <div class="section-toolbar">
                     <div class="toolbar-left">
@@ -348,7 +385,7 @@
                 </div>
             </section>
 
-            <!-- ═══ ACCOUNTS SECTION ═══ -->
+            <!-- ACCOUNTS SECTION -->
             <section class="section" id="section-accounts">
                 <div class="section-toolbar">
                     <div class="toolbar-left">
@@ -397,6 +434,53 @@
                     </div>
                 </div>
             </section>
+
+            <!-- ANALYTICS SECTION -->
+            <section class="section" id="section-analytics">
+                <div class="section-toolbar">
+                    <div class="toolbar-left">
+                        <h3>Email Analytics</h3>
+                    </div>
+                </div>
+
+                <div class="analytics-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Performance Overview</h3>
+                        </div>
+                        <div class="analytics-content" id="analytics-overview">
+                            <div class="analytics-stats">
+                                <div class="analytics-stat">
+                                    <span class="analytics-stat-value" id="analytics-total-templates">0</span>
+                                    <span class="analytics-stat-label">Templates Used</span>
+                                </div>
+                                <div class="analytics-stat">
+                                    <span class="analytics-stat-value" id="analytics-total-uses">0</span>
+                                    <span class="analytics-stat-label">Total Sends</span>
+                                </div>
+                                <div class="analytics-stat">
+                                    <span class="analytics-stat-value" id="analytics-total-replies">0</span>
+                                    <span class="analytics-stat-label">Total Replies</span>
+                                </div>
+                                <div class="analytics-stat">
+                                    <span class="analytics-stat-value" id="analytics-overall-rate">0%</span>
+                                    <span class="analytics-stat-label">Overall Reply Rate</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Top Performing Templates</h3>
+                        </div>
+                        <div class="templates-list" id="top-templates">
+                            <div class="activity-empty">No templates with enough data yet</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
         </div>
     </main>
 

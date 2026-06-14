@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LeadFlow AI — System Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0B0F19; color: #E5E7EB; padding: 40px; }
+  h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 8px; }
+  .subtitle { color: #9CA3AF; font-size: 0.9rem; margin-bottom: 40px; }
+  .pipeline { display: flex; flex-direction: column; gap: 0; max-width: 900px; margin: 0 auto; }
+  .stage { display: flex; align-items: stretch; gap: 0; }
+  .stage-num { width: 40px; display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+  .stage-num .dot { width: 32px; height: 32px; border-radius: 50%; background: #1F2937; border: 2px solid #374151; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 600; color: #9CA3AF; flex-shrink: 0; }
+  .stage-num .line { flex: 1; width: 2px; background: #1F2937; }
+  .stage-content { flex: 1; padding: 0 0 32px 16px; }
+  .stage-title { font-size: 1rem; font-weight: 600; color: #E5E7EB; margin-bottom: 4px; }
+  .stage-desc { font-size: 0.82rem; color: #9CA3AF; margin-bottom: 10px; line-height: 1.5; }
+  .stage-box { background: #111827; border: 1px solid #1F2937; border-radius: 8px; padding: 16px; }
+  .stage-box h4 { font-size: 0.78rem; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  .modules { display: flex; flex-wrap: wrap; gap: 6px; }
+  .module { background: #1F2937; padding: 5px 10px; border-radius: 4px; font-size: 0.78rem; color: #D1D5DB; font-family: 'SF Mono', Monaco, monospace; }
+  .api-tag { background: rgba(99, 102, 241, 0.15); color: #818CF8; }
+  .ext-tag { background: rgba(245, 158, 11, 0.15); color: #FBBF24; }
+  .db-tag { background: rgba(34, 197, 94, 0.15); color: #4ADE80; }
+  .arrow { text-align: center; color: #374151; font-size: 1.2rem; padding: 4px 0; margin-left: 20px; }
+  .status-flow { background: #111827; border: 1px solid #1F2937; border-radius: 8px; padding: 20px; margin-top: 32px; max-width: 900px; margin-left: auto; margin-right: auto; }
+  .status-flow h3 { font-size: 0.9rem; font-weight: 600; margin-bottom: 12px; }
+  .statuses { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .status { padding: 4px 10px; border-radius: 4px; font-size: 0.78rem; font-weight: 500; }
+  .s-new { background: rgba(59, 130, 246, 0.15); color: #60A5FA; }
+  .s-enriched { background: rgba(99, 102, 241, 0.15); color: #818CF8; }
+  .s-gen { background: rgba(168, 85, 247, 0.15); color: #C084FC; }
+  .s-emailed { background: rgba(245, 158, 11, 0.15); color: #FBBF24; }
+  .s-fu { background: rgba(251, 146, 60, 0.15); color: #FB923C; }
+  .s-replied { background: rgba(34, 197, 94, 0.15); color: #4ADE80; }
+  .s-bounced { background: rgba(239, 68, 68, 0.15); color: #F87171; }
+  .s-unsub { background: rgba(107, 114, 128, 0.15); color: #9CA3AF; }
+  .arr { color: #374151; font-size: 0.9rem; }
+  .section-label { font-size: 0.75rem; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; margin: 32px auto 12px; max-width: 900px; font-weight: 600; }
+  .jobs-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; max-width: 900px; margin: 0 auto 32px; }
+  .job { background: #111827; border: 1px solid #1F2937; border-radius: 8px; padding: 14px 16px; }
+  .job-name { font-size: 0.85rem; font-weight: 600; color: #E5E7EB; margin-bottom: 2px; }
+  .job-interval { font-size: 0.75rem; color: #6B7280; margin-bottom: 6px; }
+  .job-desc { font-size: 0.78rem; color: #9CA3AF; line-height: 1.4; }
+  .ext-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 900px; margin: 0 auto 32px; }
+  .ext { background: #111827; border: 1px solid #1F2937; border-radius: 8px; padding: 14px 16px; }
+  .ext-name { font-size: 0.85rem; font-weight: 600; color: #FBBF24; margin-bottom: 4px; }
+  .ext-purpose { font-size: 0.78rem; color: #9CA3AF; line-height: 1.4; }
+  .db-tables { max-width: 900px; margin: 0 auto; }
+  .db-table { background: #111827; border: 1px solid #1F2937; border-radius: 8px; padding: 14px 16px; margin-bottom: 8px; }
+  .db-table-name { font-size: 0.85rem; font-weight: 600; color: #4ADE80; font-family: monospace; margin-bottom: 4px; }
+  .db-fields { font-size: 0.78rem; color: #9CA3AF; font-family: monospace; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<h1>LeadFlow AI — System Architecture</h1>
+<p class="subtitle">Cold email outreach platform. End-to-end pipeline from lead import to reply tracking.</p>
+
+<div class="pipeline">
+
+  <div class="stage">
+    <div class="stage-num"><div class="dot">1</div><div class="line"></div></div>
+    <div class="stage-content">
+      <div class="stage-title">Lead Import</div>
+      <div class="stage-desc">Upload CSV or sync Google Sheets. Flexible column mapping, email validation, deduplication.</div>
+      <div class="stage-box">
+        <h4>Modules</h4>
+        <div class="modules">
+          <span class="module">csv_handler.py</span>
+          <span class="module">sheets_handler.py</span>
+          <span class="module">validator.py</span>
+          <span class="module api-tag">POST /leads/upload-csv</span>
+          <span class="module api-tag">POST /leads/sync-sheets</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">&#8595;</div>
+
+  <div class="stage">
+    <div class="stage-num"><div class="dot">2</div><div class="line"></div></div>
+    <div class="stage-content">
+      <div class="stage-title">Lead Enrichment</div>
+      <div class="stage-desc">Scrape company website, extract content, generate AI summary with company description, industry, key offering.</div>
+      <div class="stage-box">
+        <h4>Modules</h4>
+        <div class="modules">
+          <span class="module">enricher.py</span>
+          <span class="module ext-tag">BeautifulSoup (scraping)</span>
+          <span class="module ext-tag">NVIDIA NIM (AI summary)</span>
+          <span class="module api-tag">POST /leads/enrich</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">&#8595;</div>
+
+  <div class="stage">
+    <div class="stage-num"><div class="dot">3</div><div class="line"></div></div>
+    <div class="stage-content">
+      <div class="stage-title">AI Email Generation</div>
+      <div class="stage-desc">Generate personalized cold emails using lead context + top-performing templates as few-shot examples. Spam word check, prompt injection defense, unsubscribe footer.</div>
+      <div class="stage-box">
+        <h4>Modules</h4>
+        <div class="modules">
+          <span class="module">generator.py</span>
+          <span class="module">followup_generator.py</span>
+          <span class="module">optimizer.py</span>
+          <span class="module ext-tag">NVIDIA NIM (Llama 3.1 70B)</span>
+          <span class="module api-tag">POST /emails/generate</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">&#8595;</div>
+
+  <div class="stage">
+    <div class="stage-num"><div class="dot">4</div><div class="line"></div></div>
+    <div class="stage-content">
+      <div class="stage-title">Email Sending</div>
+      <div class="stage-desc">Batch send with warmup-aware daily limits, multi-account round-robin, exponential backoff retry, 30-120s random delay between sends.</div>
+      <div class="stage-box">
+        <h4>Modules</h4>
+        <div class="modules">
+          <span class="module">batch_sender.py</span>
+          <span class="module">gmail_client.py</span>
+          <span class="module">account_manager.py</span>
+          <span class="module ext-tag">Gmail API (OAuth2)</span>
+          <span class="module api-tag">POST /campaigns/{id}/start</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">&#8595;</div>
+
+  <div class="stage">
+    <div class="stage-num"><div class="dot">5</div><div class="line"></div></div>
+    <div class="stage-content">
+      <div class="stage-title">Reply Tracking</div>
+      <div class="stage-desc">Poll Gmail inboxes every 5 min. Match replies via thread ID. Classify as interested/not interested/OOO/unsubscribe. Detect bounces.</div>
+      <div class="stage-box">
+        <h4>Modules</h4>
+        <div class="modules">
+          <span class="module">monitor.py</span>
+          <span class="module">classifier.py</span>
+          <span class="module ext-tag">Gmail API (inbox poll)</span>
+          <span class="module api-tag">POST /replies/check</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">&#8595;</div>
+
+  <div class="stage">
+    <div class="stage-num"><div class="dot">6</div><div class="line"></div></div>
+    <div class="stage-content">
+      <div class="stage-title">Follow-Up Automation</div>
+      <div class="stage-desc">Auto-generate follow-ups: FU-1 after 2 days (new angle), FU-2 after 5 days (breakup email). Threaded via Gmail thread ID.</div>
+      <div class="stage-box">
+        <h4>Modules</h4>
+        <div class="modules">
+          <span class="module">followup_scheduler.py</span>
+          <span class="module">followup_generator.py</span>
+          <span class="module api-tag">POST /followups/check</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="section-label">Lead Status Lifecycle</div>
+<div class="status-flow">
+  <div class="statuses">
+    <span class="status s-new">new</span>
+    <span class="arr">&rarr;</span>
+    <span class="status s-enriched">enriched</span>
+    <span class="arr">&rarr;</span>
+    <span class="status s-gen">email_generated</span>
+    <span class="arr">&rarr;</span>
+    <span class="status s-emailed">emailed</span>
+    <span class="arr">&rarr;</span>
+    <span class="status s-fu">followup_1_sent</span>
+    <span class="arr">&rarr;</span>
+    <span class="status s-fu">followup_2_sent</span>
+    <span class="arr">&rarr;</span>
+    <span class="status s-replied">replied</span>
+    <br><br>
+    <span class="status s-bounced">bounced</span>
+    <span style="color:#6B7280;font-size:0.78rem;margin-left:4px">can occur at any send stage</span>
+    &nbsp;&nbsp;
+    <span class="status s-unsub">unsubscribed</span>
+    <span style="color:#6B7280;font-size:0.78rem;margin-left:4px">opt-out via email</span>
+  </div>
+</div>
+
+<div class="section-label">Background Jobs (APScheduler)</div>
+<div class="jobs-grid">
+  <div class="job">
+    <div class="job-name">Reply Check</div>
+    <div class="job-interval">Every 5 minutes</div>
+    <div class="job-desc">Poll all Gmail inboxes, match replies to sent emails via thread ID, classify responses, detect bounces.</div>
+  </div>
+  <div class="job">
+    <div class="job-name">Follow-Up Check</div>
+    <div class="job-interval">Every 1 hour</div>
+    <div class="job-desc">Find leads emailed >2 days ago without reply, generate follow-up 1. Leads with FU-1 sent >3 days ago get follow-up 2.</div>
+  </div>
+  <div class="job">
+    <div class="job-name">Account Health Check</div>
+    <div class="job-interval">Every 6 hours</div>
+    <div class="job-desc">Verify Gmail API connectivity for all registered accounts. Mark unhealthy accounts as inactive.</div>
+  </div>
+  <div class="job">
+    <div class="job-name">Warmup Increment</div>
+    <div class="job-interval">Every 24 hours</div>
+    <div class="job-desc">Increase daily send limit by +5 (up to configured max). Protects Gmail account reputation during warmup.</div>
+  </div>
+</div>
+
+<div class="section-label">External Services</div>
+<div class="ext-grid">
+  <div class="ext">
+    <div class="ext-name">NVIDIA NIM</div>
+    <div class="ext-purpose">Llama 3.1 70B for email generation, lead enrichment summarization, reply classification.</div>
+  </div>
+  <div class="ext">
+    <div class="ext-name">Gmail API</div>
+    <div class="ext-purpose">OAuth2 send + read. Thread management, inbox polling, health checks. RFC 8058 unsubscribe headers.</div>
+  </div>
+  <div class="ext">
+    <div class="ext-name">Google Sheets</div>
+    <div class="ext-purpose">Optional lead import from spreadsheets via service account.</div>
+  </div>
+</div>
+
+<div class="section-label">Database (SQLite + WAL)</div>
+<div class="db-tables">
+  <div class="db-table">
+    <div class="db-table-name">leads</div>
+    <div class="db-fields">id, first_name, last_name, email (unique), company_name, website, industry, company_description, key_offering, enriched, status, source, campaign_id (FK)</div>
+  </div>
+  <div class="db-table">
+    <div class="db-table-name">email_records</div>
+    <div class="db-fields">id, lead_id (FK), subject, body, email_type (initial/followup_1/followup_2), status (pending/sent/failed/bounced), gmail_account, gmail_message_id, gmail_thread_id, sent_at</div>
+  </div>
+  <div class="db-table">
+    <div class="db-table-name">replies</div>
+    <div class="db-fields">id, lead_id (FK), reply_body, classification (interested/not_interested/oOO/unsubscribe/spam), confidence_score, gmail_message_id, gmail_thread_id</div>
+  </div>
+  <div class="db-table">
+    <div class="db-table-name">campaigns</div>
+    <div class="db-fields">id, name, status (active/paused/completed), daily_limit, warmup_day, current_daily_limit, total_leads, total_sent, total_replies, total_bounces</div>
+  </div>
+  <div class="db-table">
+    <div class="db-table-name">email_templates</div>
+    <div class="db-fields">id, subject_pattern, body_pattern, times_used, reply_count, performance_score (feedback loop for AI generation)</div>
+  </div>
+  <div class="db-table">
+    <div class="db-table-name">gmail_accounts</div>
+    <div class="db-fields">id, email (unique), display_name, sends_today, last_send_at, is_active, is_healthy</div>
+  </div>
+</div>
+
+</body>
+</html>

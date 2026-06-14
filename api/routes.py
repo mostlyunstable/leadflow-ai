@@ -182,7 +182,7 @@ async def delete_lead(lead_id: int, db: Session = Depends(get_db_session)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.post("/leads/enrich")
-async def enrich_leads(background_tasks: BackgroundTasks, campaign_id: Optional[int] = Form(None)):
+async def enrich_leads(background_tasks: BackgroundTasks, campaign_id: Optional[int] = Query(None)):
     """Trigger enrichment for all unenriched leads (runs in background)."""
     def _run_enrichment():
         try:
