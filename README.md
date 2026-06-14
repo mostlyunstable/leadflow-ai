@@ -1,29 +1,47 @@
-# LeadFlow AI — Cold Email Outreach System
-
-AI-powered cold email outreach system that ingests leads, generates hyper-personalized emails, sends via Gmail API with deliverability safeguards, tracks replies, and automates intelligent follow-ups.
+<p align="center">
+  <h1 align="center">LeadFlow AI</h1>
+  <p align="center">AI-Powered Cold Email Outreach System</p>
+  <p align="center">
+    <img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python">
+    <img src="https://img.shields.io/badge/fastapi-0.104+-green" alt="FastAPI">
+    <img src="https://img.shields.io/badge/sqlalchemy-2.0+-orange" alt="SQLAlchemy">
+    <img src="https://img.shields.io/badge/license-MIT-gray" alt="License">
+  </p>
+</p>
 
 ---
+
+A complete cold email outreach platform that ingests leads, generates hyper-personalized emails with AI, sends via Gmail API with deliverability safeguards, tracks replies, and automates intelligent follow-ups.
 
 ## Features
 
-- **Lead Ingestion** — Import from CSV files or Google Sheets with automatic validation & deduplication
-- **Lead Enrichment** — Scrape company websites and use AI to extract descriptions, industry, and key offerings
-- **AI Personalization** — Generate unique, human-sounding cold emails with OpenAI (no generic templates)
-- **Gmail API Integration** — Secure OAuth2 sending with support for multiple accounts
-- **Smart Throttling** — Random delays (30-120s), daily limits, domain warmup
-- **Automated Follow-Ups** — 2-day and 5-day follow-ups that reference the original email
-- **Reply Detection** — Monitor inboxes, classify replies (interested/not interested/OOO/unsubscribe)
-- **Performance Optimization** — Track which subject lines and first lines get the best reply rates
-- **Premium Dashboard** — Dark-mode UI with real-time stats, pipeline visualization, and campaign controls
+| Category | Capability |
+|----------|-----------|
+| **Lead Ingestion** | Import from CSV or Google Sheets with validation, deduplication, and flexible column mapping |
+| **Lead Enrichment** | Scrape company websites + AI summarization for industry, description, and key offering |
+| **AI Email Generation** | Personalized cold emails using Llama 3.1 70B (NVIDIA NIM) with spam word detection |
+| **Gmail Integration** | OAuth2 sending with RFC 8058 List-Unsubscribe headers, multi-account round-robin |
+| **Smart Throttling** | Random delays (30-120s), warmup-aware daily limits, exponential backoff retry |
+| **Automated Follow-Ups** | 2-day (new angle) and 5-day (breakup) follow-ups threaded via Gmail thread ID |
+| **Reply Tracking** | Inbox polling, AI + rule-based classification (interested / not interested / OOO / unsubscribe) |
+| **Performance Optimization** | Template performance scoring feeds best patterns back to AI generation |
+| **Dashboard** | Dark-mode SPA with real-time stats, pipeline breakdown, campaign controls |
 
----
+## Tech Stack
+
+- **Backend:** Python 3.10+, FastAPI, SQLAlchemy 2.0, APScheduler
+- **Database:** SQLite (WAL mode) — production-ready for single-node; swap to PostgreSQL for multi-node
+- **AI:** NVIDIA NIM (Llama 3.1 70B Instruct) via OpenAI-compatible API
+- **Email:** Gmail API (OAuth2) with round-robin multi-account support
+- **Frontend:** Vanilla JS SPA, CSS custom properties, no build step required
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. Clone & Install
 
 ```bash
-cd "LEAD GENERATOR"
+git clone https://github.com/mostlyunstable/leadflow-ai.git
+cd leadflow-ai
 pip install -r requirements.txt
 ```
 
@@ -33,160 +51,196 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` and add your **OpenAI API key**:
-```
-OPENAI_API_KEY=sk-your-key-here
+Edit `.env` with your API key:
+
+```bash
+OPENAI_API_KEY=nvapi-your-key-here
+OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
+OPENAI_MODEL=meta/llama-3.1-70b-instruct
 ```
 
 ### 3. Set Up Gmail API
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project (or select existing)
-3. Enable the **Gmail API**
-4. Go to **APIs & Services → Credentials**
-5. Create an **OAuth 2.0 Client ID** (Desktop application type)
-6. Download the JSON and save as `config/credentials/credentials.json`
+2. Create a project and enable the **Gmail API**
+3. Go to **APIs & Services > Credentials**
+4. Create an **OAuth 2.0 Client ID** (Desktop application)
+5. Download the JSON and save as `config/credentials/credentials.json`
 
-### 4. Run the Application
+### 4. Run
 
 ```bash
 python main.py
 ```
 
-Open your browser to **http://localhost:8000**
+Open **http://localhost:8000** in your browser.
 
-### 5. Add a Gmail Account
+### 5. Connect Gmail
 
-- Go to the **Accounts** tab in the dashboard
-- Click **Add Account** and enter your Gmail address
-- Complete the OAuth flow in the browser window that opens
-
----
+Go to **Accounts** tab > **Add Account** > complete the OAuth flow.
 
 ## Usage Workflow
 
-### Step 1: Import Leads
-Upload a CSV file with columns: `First Name`, `Last Name`, `Email`, `Company Name`, `Website` (optional), `Industry` (optional)
+```
+CSV Import  ──>  Enrich Leads  ──>  Generate Emails  ──>  Start Campaign
+                                                         │
+              ┌──────────────────────────────────────────┘
+              ▼
+         Send Emails  ──>  Track Replies  ──>  Auto Follow-Ups
+         (throttled)       (AI classified)     (2-day, 5-day)
+```
 
-### Step 2: Enrich Leads
-Click **Enrich Leads** to scrape company websites and extract business intelligence.
-
-### Step 3: Create a Campaign
-Go to **Campaigns** → **New Campaign** → set name and daily send limit.
-
-### Step 4: Generate Emails
-Click **Generate Emails** — AI will create personalized emails for each lead.
-
-### Step 5: Start Campaign
-Click **Start** on your campaign. Emails send automatically with throttling.
-
-### Step 6: Monitor
-- **Overview** dashboard shows real-time stats
-- **Replies** tab shows classified responses
-- Follow-ups are queued automatically after 2 and 5 days
-
----
+1. **Import Leads** — Upload a CSV with columns: `first_name`, `last_name`, `email`, `company_name`, `website` (optional), `industry` (optional)
+2. **Enrich Leads** — Click **Enrich Leads** to scrape company websites and extract business context
+3. **Create Campaign** — Go to **Campaigns** > **New Campaign** > set name and daily send limit
+4. **Generate Emails** — Click **Generate Emails** — AI creates personalized emails for each lead
+5. **Start Campaign** — Click **Start** on your campaign. Emails send automatically with throttling
+6. **Monitor** — Overview dashboard shows real-time stats; Replies tab shows classified responses; follow-ups queue automatically
 
 ## Project Structure
 
 ```
-LEAD GENERATOR/
-├── main.py                      # Application entry point
-├── requirements.txt             # Python dependencies
-├── .env.example                 # Environment variable template
+leadflow-ai/
+├── main.py                          # FastAPI entrypoint, scheduler, lifespan
 ├── config/
-│   ├── settings.py              # Central configuration
-│   └── credentials/             # OAuth tokens & keys
+│   ├── settings.py                  # All config from env vars
+│   └── credentials/                 # OAuth tokens (gitignored)
 ├── database/
-│   ├── models.py                # SQLAlchemy ORM models
-│   └── database.py              # DB engine & sessions
-├── modules/
-│   ├── lead_ingestion/          # CSV & Sheets import
-│   ├── lead_enrichment/         # Website scraping
-│   ├── ai_engine/               # Email generation & optimization
-│   ├── email_sender/            # Gmail API & batch sending
-│   ├── reply_tracker/           # Inbox monitoring & classification
-│   └── scheduler/               # Follow-up scheduling
+│   ├── database.py                  # SQLAlchemy engine, sessions
+│   └── models.py                    # 6 tables: leads, email_records, replies,
+│                                    #   campaigns, email_templates, gmail_accounts
 ├── api/
-│   └── routes.py                # FastAPI endpoints
-└── dashboard/
-    ├── templates/index.html     # Dashboard UI
-    └── static/                  # CSS & JavaScript
+│   └── routes.py                    # ~17 REST endpoints
+├── modules/
+│   ├── ai_engine/
+│   │   ├── ai_utils.py              # Shared: OpenAI client, JSON parsing, sanitization
+│   │   ├── generator.py             # Cold email generation
+│   │   ├── followup_generator.py    # Follow-up generation (FU-1, FU-2)
+│   │   └── optimizer.py             # Template performance tracking
+│   ├── email_sender/
+│   │   ├── gmail_client.py          # Gmail OAuth2 client
+│   │   ├── account_manager.py       # Multi-account round-robin
+│   │   └── batch_sender.py          # Throttled batch sending
+│   ├── lead_ingestion/
+│   │   ├── csv_handler.py           # CSV parsing with flexible column mapping
+│   │   ├── sheets_handler.py        # Google Sheets import
+│   │   └── validator.py             # Email validation, dedup, disposable detection
+│   ├── lead_enrichment/
+│   │   └── enricher.py              # Website scraping + AI summarization
+│   ├── reply_tracker/
+│   │   ├── monitor.py               # Inbox polling, bounce detection
+│   │   └── classifier.py            # Rule-based + AI reply classification
+│   └── scheduler/
+│       └── followup_scheduler.py    # Automated follow-up timing
+├── dashboard/
+│   ├── templates/index.html         # SPA dashboard
+│   └── static/
+│       ├── css/styles.css           # Dark theme, responsive
+│       └── js/dashboard.js          # All UI interactions
+└── alembic/                         # Database migrations (placeholder)
 ```
 
----
-
-## API Endpoints
+## API Reference
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/leads/upload-csv` | Upload CSV file |
-| POST | `/api/leads/sync-sheets` | Import from Google Sheets |
-| GET | `/api/leads` | List leads (with filters) |
-| POST | `/api/leads/enrich` | Trigger lead enrichment |
-| POST | `/api/emails/generate` | Generate AI emails |
-| POST | `/api/campaigns/create` | Create campaign |
-| POST | `/api/campaigns/{id}/start` | Start campaign |
-| POST | `/api/campaigns/{id}/pause` | Pause campaign |
-| GET | `/api/stats` | Dashboard statistics |
-| GET | `/api/emails` | Email send log |
-| GET | `/api/replies` | Reply log |
-| POST | `/api/replies/check` | Check inboxes now |
-| POST | `/api/accounts/add` | Add Gmail account |
-| GET | `/api/accounts` | List accounts |
+| `POST` | `/api/leads/upload-csv` | Upload CSV of leads |
+| `POST` | `/api/leads/sync-sheets` | Import from Google Sheets |
+| `GET` | `/api/leads` | List leads (filter by status, campaign) |
+| `DELETE` | `/api/leads/{id}` | Delete a lead |
+| `POST` | `/api/leads/enrich` | Trigger enrichment (background) |
+| `POST` | `/api/emails/generate` | Generate AI emails (background) |
+| `GET` | `/api/emails` | List email records (filter by status, type) |
+| `POST` | `/api/campaigns/create` | Create a campaign |
+| `GET` | `/api/campaigns` | List all campaigns |
+| `POST` | `/api/campaigns/{id}/start` | Start sending |
+| `POST` | `/api/campaigns/{id}/pause` | Pause sending |
+| `GET` | `/api/replies` | List replies (filter by classification) |
+| `POST` | `/api/replies/check` | Trigger inbox check (background) |
+| `POST` | `/api/followups/check` | Queue eligible follow-ups |
+| `GET` | `/api/followups/status` | Follow-up pipeline status |
+| `POST` | `/api/accounts/add` | Add Gmail account (OAuth) |
+| `GET` | `/api/accounts` | List Gmail accounts |
+| `POST` | `/api/accounts/health-check` | Run health check |
+| `GET` | `/api/stats` | Dashboard statistics |
+| `GET` | `/api/stats/optimization` | Email optimization insights |
 
-Full API docs available at `http://localhost:8000/docs`
-
----
-
-## Scaling
-
-### Multiple Gmail Accounts
-Add multiple accounts via the dashboard. The system uses **round-robin rotation** to distribute sends across accounts.
-
-### Domain Warmup
-Enabled by default. Starts at 10 emails/day and increases by 5 each day until reaching your configured limit.
-
-### Deploy to Production
-```bash
-# Run with production settings
-DEBUG=false LOG_LEVEL=WARNING python main.py
-```
-
-For persistent deployment, use systemd, Docker, or a process manager like PM2.
-
----
-
-## Deliverability Safeguards
-
-| Feature | Default |
-|---------|---------|
-| Daily send limit | 50/account |
-| Random delay | 30-120 seconds |
-| Warmup | Start at 10, +5/day |
-| Email format | Plain text only |
-| Spam word filter | 100+ trigger words |
-| Unsubscribe footer | Auto-appended |
-| Bounce detection | Automatic |
-
----
+Interactive API docs at **http://localhost:8000/docs**
 
 ## Configuration
 
-All settings can be overridden via `.env`:
+All settings are configurable via environment variables or `.env`:
 
 ```bash
-DAILY_SEND_LIMIT=50          # Max emails per account per day
-MIN_DELAY_SECONDS=30         # Minimum delay between sends
-MAX_DELAY_SECONDS=120        # Maximum delay between sends
-FOLLOWUP_1_DAYS=2            # Days before first follow-up
-FOLLOWUP_2_DAYS=5            # Days before second follow-up
-WARMUP_ENABLED=true          # Enable warmup mode
-WARMUP_START_LIMIT=10        # Starting daily limit during warmup
-WARMUP_INCREMENT=5           # Daily increase during warmup
+# ── AI ──────────────────────────────────────
+OPENAI_API_KEY=                    # NVIDIA NIM / OpenAI API key
+OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
+OPENAI_MODEL=meta/llama-3.1-70b-instruct
+OPENAI_MAX_TOKENS=500
+OPENAI_TEMPERATURE=0.8
+
+# ── Email Sending ───────────────────────────
+DAILY_SEND_LIMIT=50                # Max emails per account per day
+MIN_DELAY_SECONDS=30               # Minimum delay between sends
+MAX_DELAY_SECONDS=120              # Maximum delay between sends
+MAX_RETRIES=3                      # Retry attempts per email
+
+# ── Warmup ──────────────────────────────────
+WARMUP_ENABLED=true
+WARMUP_START_LIMIT=10              # Starting daily limit
+WARMUP_INCREMENT=5                 # Daily increase
+
+# ── Follow-Ups ──────────────────────────────
+FOLLOWUP_1_DAYS=2                  # Days before first follow-up
+FOLLOWUP_2_DAYS=5                  # Days before second follow-up
+
+# ── Reply Monitoring ────────────────────────
+REPLY_CHECK_INTERVAL_MINUTES=5     # Inbox poll frequency
+
+# ── Scraping ────────────────────────────────
+SCRAPE_TIMEOUT=10                  # Website scrape timeout (seconds)
+
+# ── Server ──────────────────────────────────
+HOST=0.0.0.0
+PORT=8000
+DEBUG=true
+DASHBOARD_API_KEY=                 # Set to require API key auth
+CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+
+# ── Logging ─────────────────────────────────
+LOG_LEVEL=INFO
+LOG_MAX_BYTES=10485760             # 10 MB per log file
+LOG_BACKUP_COUNT=5                 # Number of rotated log files
 ```
 
----
+## Deliverability Safeguards
+
+| Feature | Implementation |
+|---------|---------------|
+| Daily send limits | Per-account, warmup-aware (starts at 10, +5/day) |
+| Random delays | 30-120 seconds between sends |
+| Exponential backoff | 2^attempt + jitter on failures |
+| Email format | Plain text only (higher deliverability) |
+| Spam filter | 120+ trigger words checked before sending |
+| Unsubscribe | RFC 8058 One-Click List-Unsubscribe header + footer |
+| Bounce detection | Automatic via inbox polling |
+| Multi-account | Round-robin rotation across connected accounts |
+
+## Architecture
+
+```
+CSV/Sheets ──> Lead Import ──> Enrichment ──> AI Generation ──> Gmail Send
+                  │                                              │
+                  ▼                                              ▼
+              SQLite DB ─────────────────────────────────── Reply Tracking
+                  │                                              │
+                  ▼                                              ▼
+             Dashboard  <────────────────────── Classification (AI + Rules)
+                                                         │
+                                                         ▼
+                                                   Follow-Up Scheduler
+                                                   (2-day, 5-day)
+```
 
 ## License
 
