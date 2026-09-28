@@ -1,0 +1,30 @@
+[Unit]
+Description=LeadFlow AI Periodic Housekeeping & Maintenance Worker
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=leadflow
+Group=leadflow
+WorkingDirectory=/opt/leadflow-ai
+EnvironmentFile=/etc/leadflow/leadflow.env
+
+ExecStart=/opt/leadflow-ai/.venv/bin/python workers/maintenance_worker.py
+
+KillSignal=SIGTERM
+TimeoutStopSec=15s
+
+Restart=always
+RestartSec=10s
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/leadflow-ai/logs
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

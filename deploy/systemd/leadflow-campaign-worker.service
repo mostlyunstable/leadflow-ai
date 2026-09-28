@@ -1,0 +1,32 @@
+[Unit]
+Description=LeadFlow AI Campaign Outbound Dispatch Worker
+After=network.target postgresql.service redis.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=leadflow
+Group=leadflow
+WorkingDirectory=/opt/leadflow-ai
+EnvironmentFile=/etc/leadflow/leadflow.env
+
+ExecStart=/opt/leadflow-ai/.venv/bin/python workers/campaign_worker.py
+
+# Graceful termination: allows worker to complete in-flight send without duplicate dispatch
+KillSignal=SIGTERM
+TimeoutStopSec=60s
+
+Restart=always
+RestartSec=5s
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/leadflow-ai/logs
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

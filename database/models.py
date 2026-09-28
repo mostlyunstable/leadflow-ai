@@ -100,6 +100,13 @@ class ReplyClassification(str, enum.Enum):
     UNKNOWN = "unknown"
 
 
+class SuppressionReason(str, enum.Enum):
+    UNSUBSCRIBE = "unsubscribe"
+    BOUNCE = "bounce"
+    COMPLAINT = "complaint"
+    MANUAL = "manual"
+
+
 # ── Multi-Tenancy Core ───────────────────────────────────────────────────────
 
 class Organization(Base):
@@ -536,6 +543,23 @@ class EmailTemplate(Base):
 
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+
+class SuppressionEntry(Base):
+    """Global or organization-scoped suppression list to prevent sending to opt-outs or bounced addresses."""
+    __tablename__ = "suppression_entries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    reason = Column(SQLEnum(SuppressionReason), default=SuppressionReason.UNSUBSCRIBE, nullable=False)
+    source = Column(String(100), default="user_optout", nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "email", name="uq_org_suppressed_email"),
+        Index("ix_suppression_org_email", "organization_id", "email"),
+    )
 
 
 # ── Audit & Observability ────────────────────────────────────────────────────

@@ -1,0 +1,33 @@
+[Unit]
+Description=LeadFlow AI Web API (FastAPI / Uvicorn)
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=simple
+User=leadflow
+Group=leadflow
+WorkingDirectory=/opt/leadflow-ai
+EnvironmentFile=/etc/leadflow/leadflow.env
+
+# Run Uvicorn with 4 workers bound to localhost port 8000
+ExecStart=/opt/leadflow-ai/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers --forwarded-allow-ips="127.0.0.1"
+
+# Process management & auto-recovery
+Restart=always
+RestartSec=3s
+KillMode=mixed
+TimeoutStopSec=15s
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/leadflow-ai/logs
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

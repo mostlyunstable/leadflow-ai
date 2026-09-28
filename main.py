@@ -11,7 +11,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -136,13 +136,62 @@ async def serve_dashboard():
 
 
 @app.get("/health")
-def health_check():
-    """Health & Readiness probe for orchestrators/Docker."""
+@app.get("/health/live")
+def health_liveness():
+    """Liveness probe for process supervision."""
     return {
-        "status": "healthy",
+        "status": "alive",
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "environment": settings.ENVIRONMENT.value,
+    }
+
+
+@app.get("/health/ready")
+def health_readiness(response: Response):
+    """
+    Readiness probe verifying database and redis connectivity.
+    Returns 200 OK if all required dependencies are reachable, or 503 if unavailable.
+    """
+    from sqlalchemy import text
+    from database.database import get_session
+
+    checks = {
+        "database": "unknown",
+        "redis": "skipped" if not settings.REDIS_URL else "unknown",
+    }
+    is_ready = True
+
+    # 1. Verify Database
+    try:
+        with get_session() as session:
+            session.execute(text("SELECT 1"))
+        checks["database"] = "connected"
+    except Exception as e:
+        logger.error(f"Readiness check failed on database: {e}")
+        checks["database"] = f"error: {str(e)}"
+        is_ready = False
+
+    # 2. Verify Redis if configured
+    if settings.REDIS_URL:
+        try:
+            import redis
+            r = redis.from_url(settings.REDIS_URL, socket_timeout=1.5)
+            r.ping()
+            checks["redis"] = "connected"
+        except Exception as e:
+            logger.warning(f"Readiness check warning on redis: {e}")
+            checks["redis"] = f"degraded: {str(e)}"
+            # In graceful degradation mode, redis failure does not block API readiness if DB is alive
+
+    if not is_ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+    return {
+        "status": "ready" if is_ready else "unready",
+        "app": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "checks": checks,
     }
 
 

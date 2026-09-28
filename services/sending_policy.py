@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 from database.models import (
-    EmailProviderAccount, Campaign, Lead, LeadStatus, utc_now
+    EmailProviderAccount, Campaign, Lead, LeadStatus, SuppressionEntry, utc_now
 )
 
 logger = logging.getLogger("leadflow.policy")
@@ -79,6 +79,15 @@ class SendingPolicyEngine:
             return PolicyDecision(
                 allowed=False,
                 reason=f"Recipient {lead.email} is in suppression status ({lead.status.value})",
+            )
+        suppressed = session.query(SuppressionEntry).filter_by(
+            organization_id=campaign.organization_id,
+            email=lead.email,
+        ).first()
+        if suppressed:
+            return PolicyDecision(
+                allowed=False,
+                reason=f"Recipient {lead.email} is in suppression list ({suppressed.reason.value})",
             )
 
         # Rule 3: Campaign State & Limits
