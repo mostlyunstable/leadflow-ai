@@ -42,6 +42,18 @@ def test_health_ready_endpoint(db_session):
     assert data["checks"]["database"] == "connected"
 
 
+def test_metrics_prometheus_endpoint(db_session):
+    """Verify /metrics returns Prometheus formatted plaintext metrics."""
+    client = TestClient(app)
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    content = resp.text
+    assert "leadflow_api_requests_total" in content
+    assert "leadflow_queue_depth" in content
+    assert "leadflow_db_connections_active" in content
+    assert "leadflow_disk_free_bytes" in content
+
+
 def test_sending_policy_suppression_table_check(db_session, tenant_a):
     """Verify sending policy blocks recipients recorded in the suppression_entries table."""
     engine = SendingPolicyEngine()

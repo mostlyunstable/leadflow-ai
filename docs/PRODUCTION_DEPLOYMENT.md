@@ -40,7 +40,7 @@ sudo apt install -y \
 sudo systemctl enable --now postgresql
 
 # Create leadflow database user and production database
-sudo -u postgres psql -c "CREATE USER leadflow WITH PASSWORD 'CHANGE_THIS_SECURE_PASSWORD';"
+sudo -u postgres psql -c "CREATE USER leadflow WITH PASSWORD 'CHANGE_THIS_SECURE_PASSWORD' CREATEDB;"
 sudo -u postgres psql -c "CREATE DATABASE leadflow_production OWNER leadflow;"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE leadflow_production TO leadflow;"
 ```

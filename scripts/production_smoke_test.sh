@@ -41,13 +41,17 @@ check "Dashboard Static Assets (/static/)" \
 
 # 4. Authentication Gate (Verify Fail-Closed)
 check "Unauthenticated API Access Blocked" \
-    "curl -s -o /dev/null -w '%{http_code}' '${BASE_URL}/api/campaigns' | grep -E -q '401|403|200'"
+    "curl -s -o /dev/null -w '%{http_code}' '${BASE_URL}/api/campaigns' | grep -E -q '401|403'"
 
-# 5. Domain DNS Health Diagnostic Endpoint
+# 5. Prometheus Metrics Probe
+check "Prometheus Metrics (/metrics)" \
+    "curl -s -f '${BASE_URL}/metrics' | grep -q 'leadflow_api_requests_total'"
+
+# 6. Domain DNS Health Diagnostic Endpoint
 check "Domain Health Diagnostic Probe" \
     "curl -s -f '${BASE_URL}/api/domains/check-dns?domain=google.com' | grep -q 'google.com'"
 
-# 6. Local Systemd Services (if running directly on server)
+# 7. Local Systemd Services (if running directly on server)
 if command -v systemctl > /dev/null 2>&1; then
     echo "--- Systemd Unit Inspection ---"
     for svc in leadflow-api leadflow-campaign-worker leadflow-enrichment-worker leadflow-maintenance-worker; do

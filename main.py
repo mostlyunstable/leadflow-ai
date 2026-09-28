@@ -11,11 +11,15 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, status
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+import shutil
+# Metrics counters
+_api_requests_total = 0
+_api_errors_total = 0
 
 from core.config import settings, AppEnvironment
 from database.database import init_db
@@ -54,6 +58,35 @@ def setup_logging():
 
 
 logger = setup_logging()
+
+
+class MetricsMiddleware:
+    """Lightweight pure ASGI middleware for request metrics without BaseHTTPMiddleware overhead."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        global _api_requests_total, _api_errors_total
+        _api_requests_total += 1
+        status_code = 200
+
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message.get("status", 200)
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+            if status_code >= 500:
+                _api_errors_total += 1
+        except Exception:
+            _api_errors_total += 1
+            raise
 
 
 # ── Security Headers Middleware ──────────────────────────────────────────────
@@ -101,6 +134,7 @@ app = FastAPI(
 
 # ── Middlewares ──────────────────────────────────────────────────────────────
 
+app.add_middleware(MetricsMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
 app.add_middleware(
@@ -193,6 +227,66 @@ def health_readiness(response: Response):
         "version": settings.APP_VERSION,
         "checks": checks,
     }
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+def metrics_endpoint():
+    """Prometheus exposition metrics endpoint for monitoring."""
+    from sqlalchemy import text
+    from database.database import get_session
+
+    redis_connected = 0
+    if settings.REDIS_URL:
+        try:
+            import redis
+            r = redis.from_url(settings.REDIS_URL, socket_timeout=1.0)
+            if r.ping():
+                redis_connected = 1
+        except Exception:
+            redis_connected = 0
+
+    pending_jobs = 0
+    db_connections = 0
+    try:
+        with get_session() as session:
+            res = session.execute(text("SELECT count(*) FROM send_jobs WHERE status = 'pending'")).scalar()
+            pending_jobs = int(res) if res is not None else 0
+            if "postgresql" in settings.DATABASE_URL:
+                conn_res = session.execute(text("SELECT count(*) FROM pg_stat_activity")).scalar()
+                db_connections = int(conn_res) if conn_res is not None else 0
+            else:
+                db_connections = 1
+    except Exception:
+        pass
+
+    disk_info = shutil.disk_usage("/")
+    req_total = _api_requests_total
+    err_total = _api_errors_total
+
+    lines = [
+        "# HELP leadflow_api_requests_total Total HTTP requests processed by LeadFlow API",
+        "# TYPE leadflow_api_requests_total counter",
+        f"leadflow_api_requests_total {req_total}",
+        "# HELP leadflow_api_errors_total Total 5xx or unhandled server errors",
+        "# TYPE leadflow_api_errors_total counter",
+        f"leadflow_api_errors_total {err_total}",
+        "# HELP leadflow_queue_depth Pending email dispatch jobs in queue",
+        "# TYPE leadflow_queue_depth gauge",
+        f"leadflow_queue_depth {pending_jobs}",
+        "# HELP leadflow_db_connections_active Number of active PostgreSQL database connections",
+        "# TYPE leadflow_db_connections_active gauge",
+        f"leadflow_db_connections_active {db_connections}",
+        "# HELP leadflow_redis_connected Redis connectivity status (1 = connected, 0 = disconnected)",
+        "# TYPE leadflow_redis_connected gauge",
+        f"leadflow_redis_connected {redis_connected}",
+        "# HELP leadflow_disk_free_bytes Free disk space in bytes",
+        "# TYPE leadflow_disk_free_bytes gauge",
+        f"leadflow_disk_free_bytes {disk_info.free}",
+        "# HELP leadflow_disk_total_bytes Total disk space in bytes",
+        "# TYPE leadflow_disk_total_bytes gauge",
+        f"leadflow_disk_total_bytes {disk_info.total}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 if __name__ == "__main__":
