@@ -124,6 +124,7 @@ class Settings(BaseSettings):
     )
     BROWSER_HEADLESS: bool = True
     BROWSER_TIMEOUT_MS: int = 15000
+    MAX_CONCURRENT_BROWSERS: int = 3
 
     # ── Observability & Logging ──────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"

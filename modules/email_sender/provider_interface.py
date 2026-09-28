@@ -11,6 +11,19 @@ import logging
 logger = logging.getLogger("leadflow.provider")
 
 
+import enum
+from enum import Enum
+
+
+class ProviderErrorCode(str, Enum):
+    AUTH_ERROR = "AUTH_ERROR"
+    RATE_LIMIT = "RATE_LIMIT"
+    TEMPORARY_FAILURE = "TEMPORARY_FAILURE"
+    PERMANENT_FAILURE = "PERMANENT_FAILURE"
+    NETWORK_FAILURE = "NETWORK_FAILURE"
+    UNKNOWN = "UNKNOWN"
+
+
 @dataclass
 class OutboundMessage:
     """Standardized outbound email message payload."""
@@ -36,6 +49,7 @@ class SendResult:
     provider_thread_id: Optional[str] = None
     error_message: Optional[str] = None
     error_code: Optional[str] = None
+    error_category: Optional[ProviderErrorCode] = None
     retryable: bool = False
     raw_response: Optional[Dict[str, Any]] = None
 
@@ -94,6 +108,49 @@ class MockEmailProvider:
             provider_thread_id=thread_id,
             raw_response={"status": "sent", "provider": "mock"},
         )
+
+    def simulate_failure(self, message: OutboundMessage, failure_type: str) -> SendResult:
+        """Simulate specific provider failure modes for test verification."""
+        if failure_type == "rate_limit":
+            return SendResult(
+                success=False,
+                error_message="429 Too Many Requests (Rate limit exceeded)",
+                error_code="429",
+                error_category=ProviderErrorCode.RATE_LIMIT,
+                retryable=True,
+            )
+        elif failure_type == "server_error":
+            return SendResult(
+                success=False,
+                error_message="500 Internal Server Error (Temporary)",
+                error_code="500",
+                error_category=ProviderErrorCode.TEMPORARY_FAILURE,
+                retryable=True,
+            )
+        elif failure_type == "auth_error":
+            return SendResult(
+                success=False,
+                error_message="401 Unauthorized (Invalid credentials / Revoked token)",
+                error_code="401",
+                error_category=ProviderErrorCode.AUTH_ERROR,
+                retryable=False,
+            )
+        elif failure_type == "permanent_bounce":
+            return SendResult(
+                success=False,
+                error_message="550 5.1.1 User unknown / Permanent mailbox bounce",
+                error_code="550",
+                error_category=ProviderErrorCode.PERMANENT_FAILURE,
+                retryable=False,
+            )
+        else:
+            return SendResult(
+                success=False,
+                error_message=f"Simulated unknown failure: {failure_type}",
+                error_code="UNKNOWN",
+                error_category=ProviderErrorCode.UNKNOWN,
+                retryable=True,
+            )
 
     def verify_account(self) -> bool:
         return not self.should_fail

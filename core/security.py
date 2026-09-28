@@ -205,6 +205,10 @@ def validate_and_sanitize_target_url(url: str) -> Tuple[bool, str, Optional[str]
         return False, "", "URL is empty"
 
     url = url.strip()
+    if "://" in url and not url.startswith(("http://", "https://")):
+        scheme = url.split("://", 1)[0]
+        return False, url, f"Unsupported scheme: {scheme} (only http and https allowed)"
+
     if not url.startswith(("http://", "https://")):
         url = f"https://{url}"
 
@@ -259,3 +263,9 @@ def validate_and_sanitize_target_url(url: str) -> Tuple[bool, str, Optional[str]
                 return False, url, f"Resolved IP {ip} is in blocked range {blocked}"
 
     return True, url, None
+
+
+def is_safe_url(url: str) -> bool:
+    """Return True if URL is strictly safe from SSRF attacks, False otherwise."""
+    safe, _, _ = validate_and_sanitize_target_url(url)
+    return safe

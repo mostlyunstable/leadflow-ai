@@ -98,17 +98,23 @@ def get_auth_context(
                 detail="Invalid API Key provided",
             )
 
-    # 3. Development / Localhost convenience fallback
-    if settings.ENVIRONMENT in (AppEnvironment.DEVELOPMENT, AppEnvironment.TESTING):
-        org = db.query(Organization).filter_by(slug="default").first()
-        org_id = org.id if org else 1
-        return AuthContext(organization_id=org_id, role="admin")
-
-    # 4. Production fail-closed
+    # 3. Fail-closed authentication (Enforced across all environments)
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Authentication required. Provide Authorization Bearer token or X-API-Key header.",
     )
+
+
+def require_roles(allowed_roles: List[str]):
+    """Enforce server-side Role-Based Access Control (RBAC)."""
+    def role_checker(auth: AuthContext = Depends(get_auth_context)) -> AuthContext:
+        if auth.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Operation requires one of roles: {allowed_roles}. Current role: '{auth.role}'",
+            )
+        return auth
+    return role_checker
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -320,7 +326,7 @@ def get_lead_detail(
 @router.delete("/leads/{lead_id}")
 def delete_lead(
     lead_id: int,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_roles(["owner", "admin"])),
     db: Session = Depends(get_db_session),
 ):
     """Delete a lead."""
@@ -376,7 +382,7 @@ def generate_emails(
 @router.post("/campaigns/create")
 def create_campaign(
     payload: CampaignCreateRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_roles(["owner", "admin"])),
     db: Session = Depends(get_db_session),
 ):
     """Create a new campaign scoped to the organization."""
@@ -432,7 +438,7 @@ def list_campaigns(
 @router.post("/campaigns/{campaign_id}/start")
 def start_campaign(
     campaign_id: int,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_roles(["owner", "admin"])),
     db: Session = Depends(get_db_session),
 ):
     """
@@ -456,6 +462,7 @@ def start_campaign(
     pending_emails = (
         db.query(EmailRecord)
         .filter(
+            EmailRecord.organization_id == auth.organization_id,
             EmailRecord.campaign_id == campaign_id,
             EmailRecord.status == EmailStatus.PENDING,
         )
@@ -487,7 +494,7 @@ def start_campaign(
 @router.post("/campaigns/{campaign_id}/pause")
 def pause_campaign(
     campaign_id: int,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_roles(["owner", "admin"])),
     db: Session = Depends(get_db_session),
 ):
     """Pause an active campaign."""
@@ -595,7 +602,7 @@ def add_account(
     display_name: Optional[str] = Form(None),
     provider_type: str = Form("gmail"),
     credentials_json: Optional[str] = Form(None),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_roles(["owner", "admin"])),
     db: Session = Depends(get_db_session),
 ):
     """
@@ -730,6 +737,7 @@ def check_domain_dns(
 # ── Real-Time Metrics & Reporting ────────────────────────────────────────────
 
 @router.get("/stats")
+@router.get("/analytics/overview")
 def get_stats(
     auth: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db_session),

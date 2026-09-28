@@ -224,10 +224,17 @@ class SSRFSafeHTTPFetcher:
         return True
 
 
+import threading
+
+
 class BrowserFallbackFetcher:
     """
     Headless browser fetcher for dynamic, JavaScript-rendered websites.
+    Guarded by a bounded concurrency semaphore to prevent host RAM exhaustion.
     """
+    _concurrency_semaphore = threading.BoundedSemaphore(
+        value=getattr(settings, "MAX_CONCURRENT_BROWSERS", 3)
+    )
 
     def fetch(self, url: str) -> FetchedDocument:
         is_safe, sanitized_url, reason = validate_and_sanitize_target_url(url)
@@ -241,6 +248,21 @@ class BrowserFallbackFetcher:
                 raw_html="",
                 is_usable=False,
                 error=f"SSRF blocked: {reason}",
+            )
+
+        # Enforce bounded concurrency
+        acquired = self._concurrency_semaphore.acquire(timeout=5.0)
+        if not acquired:
+            logger.warning("Browser concurrency pool exhausted. Throttling browser request to prevent host memory exhaustion.")
+            return FetchedDocument(
+                url=url,
+                final_url=url,
+                resolved_ip=None,
+                fetch_method="browser",
+                status_code=503,
+                raw_html="",
+                is_usable=False,
+                error="Browser pool busy (concurrency cap reached)",
             )
 
         logger.info(f"Executing browser fetch for {sanitized_url}...")
@@ -280,6 +302,8 @@ class BrowserFallbackFetcher:
                 is_usable=False,
                 error=f"Browser fallback failed: {e}",
             )
+        finally:
+            self._concurrency_semaphore.release()
 
 
 class EnrichmentPipeline:

@@ -37,6 +37,7 @@ class UserRole(str, enum.Enum):
     OWNER = "owner"
     ADMIN = "admin"
     MEMBER = "member"
+    VIEWER = "viewer"
 
 
 class LeadStatus(str, enum.Enum):
