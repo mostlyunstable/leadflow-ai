@@ -1,9 +1,7 @@
 """
-LeadFlow AI — Cold Email Outreach System
-Main application entry point.
-
-Initializes FastAPI server, database, background schedulers,
-and serves the dashboard UI.
+LeadFlow AI — Enterprise Cold Email Outreach & Intelligence Platform.
+Main Application Entrypoint.
+Initializes FastAPI, validates production readiness, mounts middleware and routes.
 """
 
 import logging
@@ -13,28 +11,25 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from config.settings import (
-    HOST, PORT, DEBUG, LOG_LEVEL, LOG_DIR,
-    LOG_MAX_BYTES, LOG_BACKUP_COUNT,
-    REPLY_CHECK_INTERVAL_MINUTES, CORS_ORIGINS,
-)
+from core.config import settings, AppEnvironment
 from database.database import init_db
+from api.routes import router as api_router
 
 # ── Logging Setup ────────────────────────────────────────────────────────────
 
 def setup_logging():
-    """Configure structured logging to console and file."""
-    log_format = "%(asctime)s │ %(levelname)-8s │ %(name)-30s │ %(message)s"
+    """Configure structured logging to console and rotating log file."""
+    log_format = "%(asctime)s │ %(levelname)-8s │ %(name)-28s │ %(message)s"
     date_format = "%Y-%m-%d %H:%M:%S"
 
-    # Root logger
     root = logging.getLogger()
-    root.setLevel(getattr(logging, LOG_LEVEL.upper(), logging.INFO))
+    root.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
 
     # Console handler
     console = logging.StreamHandler(sys.stdout)
@@ -43,229 +38,118 @@ def setup_logging():
 
     # File handler with rotation
     file_handler = RotatingFileHandler(
-        LOG_DIR / "outreach.log",
-        maxBytes=LOG_MAX_BYTES,
-        backupCount=LOG_BACKUP_COUNT,
+        settings.LOG_DIR / "leadflow.log",
+        maxBytes=settings.LOG_MAX_BYTES,
+        backupCount=settings.LOG_BACKUP_COUNT,
         encoding="utf-8",
     )
     file_handler.setFormatter(logging.Formatter(log_format, datefmt=date_format))
     root.addHandler(file_handler)
 
-    # Quiet noisy loggers
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("openai").setLevel(logging.WARNING)
+    # Quiet external noisy loggers
+    for lib in ("httpcore", "httpx", "urllib3", "openai", "googleapiclient"):
+        logging.getLogger(lib).setLevel(logging.WARNING)
 
-    return logging.getLogger("leadflow")
+    return logging.getLogger("leadflow.main")
 
 
 logger = setup_logging()
 
 
-# ── Background Scheduler ────────────────────────────────────────────────────
+# ── Security Headers Middleware ──────────────────────────────────────────────
 
-_scheduler = None
-
-def start_scheduler():
-    """Start APScheduler for follow-up and reply monitoring jobs."""
-    global _scheduler
-    try:
-        from apscheduler.schedulers.background import BackgroundScheduler
-        from apscheduler.triggers.interval import IntervalTrigger
-
-        _scheduler = BackgroundScheduler()
-
-        # Reply monitoring job — check every N minutes
-        def check_replies_job():
-            try:
-                from modules.reply_tracker.monitor import InboxMonitor
-                monitor = InboxMonitor()
-                result = monitor.check_all_accounts()
-                if result["new_replies"] > 0 or result["bounces"] > 0:
-                    logger.info(f"Inbox check: {result['new_replies']} replies, {result['bounces']} bounces")
-            except Exception as e:
-                logger.error(f"Reply check job failed: {e}")
-
-        _scheduler.add_job(
-            check_replies_job,
-            trigger=IntervalTrigger(minutes=REPLY_CHECK_INTERVAL_MINUTES),
-            id="reply_check",
-            name="Check inbox for replies",
-            replace_existing=True,
-        )
-
-        # Follow-up scheduling job — check every hour
-        def check_followups_job():
-            try:
-                from modules.scheduler.followup_scheduler import FollowUpScheduler
-                scheduler = FollowUpScheduler()
-                result = scheduler.check_and_queue_followups()
-                if result["followup_1_queued"] > 0 or result["followup_2_queued"] > 0:
-                    logger.info(f"Follow-ups queued: {result}")
-            except Exception as e:
-                logger.error(f"Follow-up check job failed: {e}")
-
-        _scheduler.add_job(
-            check_followups_job,
-            trigger=IntervalTrigger(hours=1),
-            id="followup_check",
-            name="Check and queue follow-ups",
-            replace_existing=True,
-        )
-
-        # Account health recheck — every 6 hours
-        def health_recheck_job():
-            try:
-                from modules.email_sender.account_manager import AccountManager
-                manager = AccountManager()
-                result = manager.health_check_all()
-                if result["unhealthy"] > 0:
-                    logger.warning(f"Health recheck: {result['unhealthy']} accounts unhealthy")
-            except Exception as e:
-                logger.error(f"Health recheck job failed: {e}")
-
-        _scheduler.add_job(
-            health_recheck_job,
-            trigger=IntervalTrigger(hours=6),
-            id="health_recheck",
-            name="Recheck Gmail account health",
-            replace_existing=True,
-        )
-
-        # Warmup increment job — run daily at midnight
-        def warmup_increment_job():
-            try:
-                from config.settings import WARMUP_ENABLED, WARMUP_INCREMENT
-                if not WARMUP_ENABLED:
-                    return
-                from database.database import get_session
-                from database.models import Campaign, CampaignStatus
-                with get_session() as session:
-                    active = session.query(Campaign).filter_by(status=CampaignStatus.ACTIVE).all()
-                    for campaign in active:
-                        if campaign.current_daily_limit < campaign.daily_limit:
-                            campaign.current_daily_limit = min(
-                                campaign.current_daily_limit + WARMUP_INCREMENT,
-                                campaign.daily_limit,
-                            )
-                            campaign.warmup_day += 1
-                            logger.info(
-                                f"Campaign '{campaign.name}' warmup day {campaign.warmup_day}: "
-                                f"limit increased to {campaign.current_daily_limit}"
-                            )
-            except Exception as e:
-                logger.error(f"Warmup increment job failed: {e}")
-
-        _scheduler.add_job(
-            warmup_increment_job,
-            trigger=IntervalTrigger(hours=24),
-            id="warmup_increment",
-            name="Increment warmup limits",
-            replace_existing=True,
-        )
-
-        _scheduler.start()
-        logger.info(
-            f"Background scheduler started: "
-            f"reply check every {REPLY_CHECK_INTERVAL_MINUTES}min, "
-            f"follow-up check every 1hr"
-        )
-
-    except ImportError:
-        logger.warning(
-            "APScheduler not installed — background jobs disabled. "
-            "Install with: pip install apscheduler"
-        )
-    except Exception as e:
-        logger.error(f"Failed to start scheduler: {e}")
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        if settings.ENVIRONMENT == AppEnvironment.PRODUCTION:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
 
 
-def stop_scheduler():
-    """Gracefully shut down the scheduler."""
-    global _scheduler
-    if _scheduler:
-        _scheduler.shutdown(wait=False)
-        logger.info("Background scheduler stopped")
-
-
-# ── Lifespan ─────────────────────────────────────────────────────────────────
+# ── Application Lifespan ─────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application startup and shutdown lifecycle."""
-    # Startup
-    logger.info("=" * 60)
-    logger.info("  LeadFlow AI — Cold Email Outreach System")
-    logger.info("=" * 60)
-
-    init_db()
-    start_scheduler()
-
-    logger.info(f"Dashboard: http://localhost:{PORT}")
-    logger.info(f"API Docs:  http://localhost:{PORT}/docs")
-    logger.info("=" * 60)
+    """Application startup and shutdown management."""
+    logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION} [{settings.ENVIRONMENT.value}]")
+    
+    # 1. Enforce fail-closed production validation
+    settings.validate_production_readiness()
+    
+    # 2. Initialize database schema & seed default organization/user
+    init_db(seed_default_tenant=True)
 
     yield
 
-    # Shutdown
-    stop_scheduler()
-    logger.info("Application shutdown complete")
+    logger.info(f"Shutting down {settings.APP_NAME}...")
 
 
-# ── FastAPI App ──────────────────────────────────────────────────────────────
+# ── FastAPI App Creation ─────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="LeadFlow AI",
-    description="AI-Powered Cold Email Outreach System",
-    version="1.0.0",
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    description="Enterprise AI-Powered Outbound Intelligence & Campaign Delivery Platform",
     lifespan=lifespan,
+    docs_url="/api/docs" if settings.ENVIRONMENT != AppEnvironment.PRODUCTION else None,
+    redoc_url=None,
 )
 
-# CORS — configurable origins for security
+# ── Middlewares ──────────────────────────────────────────────────────────────
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Static files
-BASE_DIR = Path(__file__).resolve().parent
-app.mount(
-    "/static",
-    StaticFiles(directory=str(BASE_DIR / "dashboard" / "static")),
-    name="static",
-)
+# ── Include Routers ──────────────────────────────────────────────────────────
 
-# API routes
-from api.routes import router as api_router
 app.include_router(api_router)
 
+# ── Static UI & Dashboard Mounting ───────────────────────────────────────────
 
-# Dashboard route
+dashboard_dir = Path(__file__).resolve().parent / "dashboard"
+static_dir = dashboard_dir / "static"
+templates_dir = dashboard_dir / "templates"
+
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_dashboard():
-    """Serve the dashboard UI."""
-    template_path = BASE_DIR / "dashboard" / "templates" / "index.html"
-    return HTMLResponse(content=template_path.read_text(encoding="utf-8"))
+    """Serve the single-page application dashboard."""
+    index_path = templates_dir / "index.html"
+    if index_path.exists():
+        with open(index_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    return HTMLResponse("<h1>LeadFlow AI API is running</h1>")
 
 
-# Health endpoint
 @app.get("/health")
-async def health():
-    """Simple health check."""
-    return {"status": "healthy", "service": "LeadFlow AI"}
+def health_check():
+    """Health & Readiness probe for orchestrators/Docker."""
+    return {
+        "status": "healthy",
+        "app": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "environment": settings.ENVIRONMENT.value,
+    }
 
-
-# ── Entry Point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
-        host=HOST,
-        port=PORT,
-        reload=DEBUG,
-        log_level=LOG_LEVEL.lower(),
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=settings.DEBUG,
     )

@@ -1,172 +1,98 @@
 """
-AI Email Generator — Creates hyper-personalized cold emails.
-Generates subject lines, email bodies, and ensures deliverability compliance.
+Personalized Cold Email Generator.
+Uses LLMProvider abstraction with Pydantic validation, prompt-injection sanitization,
+and content quality risk heuristics.
 """
 
 import json
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
-from config.settings import (
-    OPENAI_MODEL,
-    OPENAI_TEMPERATURE,
-    OPENAI_MAX_TOKENS,
-    UNSUBSCRIBE_FOOTER,
-)
+from core.config import settings
 from database.database import get_session
-from database.models import Lead, EmailRecord, EmailType, EmailStatus, LeadStatus
-from modules.ai_engine.ai_utils import (
-    get_openai_client,
-    sanitize_input,
-    check_spam_words,
-    clean_json_response,
+from database.models import (
+    Lead, EmailRecord, EmailType, EmailStatus, LeadStatus, Campaign, utc_now
 )
+from modules.ai_engine.ai_utils import sanitize_input, check_spam_words
+from modules.ai_engine.llm_provider import get_llm_provider, GeneratedEmailOutput
 
-logger = logging.getLogger(__name__)
-
-# Backward-compatible aliases for external callers
-_get_openai_client = get_openai_client
-_sanitize_input = sanitize_input
-_check_spam_words = check_spam_words
-_clean_json_response = clean_json_response
-
-
-# ── System Prompts ───────────────────────────────────────────────────────────
+logger = logging.getLogger("leadflow.generator")
 
 SYSTEM_PROMPT = """You are an expert cold email copywriter who writes emails that feel genuinely human.
 
-RULES — follow every one:
-1. Write EXACTLY 120-150 words (body only, not including subject)
-2. Tone: conversational, warm, confident — like a smart peer, NOT a salesperson
-3. Subject line: 3-7 words, curiosity-driven, lowercase okay, no clickbait
-4. First line: Make a SPECIFIC observation about their company/product/industry — never generic
-5. NEVER use these phrases:
-   - "I came across your company"
-   - "I hope this email finds you well"
-   - "I wanted to reach out"
-   - "I noticed that"
-   - "As a [industry] leader"
-   - "revolutionary" / "game-changing" / "cutting-edge"
-6. Do NOT sound like a template
-7. End with a soft CTA — question or suggestion, not "schedule a call"
-8. No exclamation marks in subject line
-9. No emoji
-10. Write in plain text, no formatting or bullet points
+RULES:
+1. Write 100-150 words total (body only).
+2. Tone: conversational, respectful, peer-to-peer, not salesy.
+3. Subject line: 3-6 words, lowercase acceptable, no clickbait or exclamation marks.
+4. First line: specific observation about their company/industry.
+5. Soft call-to-action (open question, not pushy meeting link).
+6. Plain text only.
 
-Return ONLY a valid JSON object:
+Return ONLY a JSON object:
 {"subject": "...", "body": "..."}"""
 
 
 def generate_email(
     lead: Lead,
-    high_performing_examples: Optional[list[dict]] = None,
-) -> dict:
+    high_performing_examples: Optional[List[Dict[str, Any]]] = None,
+    provider: Optional[Any] = None,
+) -> Dict[str, str]:
     """
-    Generate a personalized initial cold email for a lead.
-    
-    Args:
-        lead: Lead model instance with enrichment data
-        high_performing_examples: Optional list of high-performing email examples
-        
-    Returns:
-        dict with keys: subject, body
+    Generate a personalized initial cold email for a lead with strict schema validation.
     """
-    client = _get_openai_client()
+    llm = provider or get_llm_provider()
 
-    # Build lead context — sanitize all user-supplied fields against prompt injection
-    first_name = _sanitize_input(lead.first_name or "")
-    last_name = _sanitize_input(lead.last_name or "")
-    company_name = _sanitize_input(lead.company_name or "")
+    # Sanitize user-provided fields against prompt injection
+    first_name = sanitize_input(lead.first_name or "")
+    last_name = sanitize_input(lead.last_name or "")
+    company_name = sanitize_input(lead.company_name or "")
 
-    context_parts = [
+    context_lines = [
         f"Recipient: {first_name} {last_name}",
         f"Company: {company_name}",
     ]
-
     if lead.industry:
-        context_parts.append(f"Industry: {_sanitize_input(lead.industry)}")
+        context_lines.append(f"Industry: {sanitize_input(lead.industry)}")
     if lead.company_description:
-        context_parts.append(f"Company description: {_sanitize_input(lead.company_description)}")
+        context_lines.append(f"Company description: {sanitize_input(lead.company_description)}")
     if lead.key_offering:
-        context_parts.append(f"Key offering: {_sanitize_input(lead.key_offering)}")
+        context_lines.append(f"Key offering: {sanitize_input(lead.key_offering)}")
     if lead.website:
-        context_parts.append(f"Website: {lead.website}")
+        context_lines.append(f"Website: {lead.website}")
 
-    lead_context = "\n".join(context_parts)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Write an outreach email for this prospect:\n" + "\n".join(context_lines)},
+    ]
 
-    # Build messages
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    output: GeneratedEmailOutput = llm.generate_email(messages)
 
-    # Add high-performing examples if available
-    if high_performing_examples:
-        examples_text = "Here are examples of high-performing emails (use as inspiration, don't copy):\n\n"
-        for ex in high_performing_examples[:3]:
-            examples_text += f'Subject: {ex["subject"]}\nBody: {ex["body"]}\n\n'
-        messages.append({"role": "user", "content": examples_text})
-        messages.append({
-            "role": "assistant",
-            "content": "Got it. I'll use these as style inspiration while creating something unique.",
-        })
-
-    messages.append({
-        "role": "user",
-        "content": f"Write a cold outreach email for this lead:\n\n{lead_context}",
-    })
-
-    # Generate
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=messages,
-        temperature=OPENAI_TEMPERATURE,
-        max_tokens=OPENAI_MAX_TOKENS,
-    )
-
-    result = _clean_json_response(response.choices[0].message.content)
-
-    # Validate required keys
-    if "subject" not in result or "body" not in result:
-        raise ValueError(f"AI response missing required keys: {result}")
-
-    # Check for spam words
-    spam_found = _check_spam_words(result["subject"] + " " + result["body"])
-    if spam_found:
-        logger.warning(
-            f"Spam trigger words found in email for {lead.email}: {spam_found}. "
-            "Regenerating..."
-        )
-        # Retry once with explicit instruction
-        messages.append({
-            "role": "assistant",
-            "content": json.dumps(result),
-        })
+    # Content quality check (risk words)
+    combined = f"{output.subject} {output.body}"
+    risk_words = check_spam_words(combined)
+    if risk_words:
+        logger.warning(f"Quality heuristic detected risk words for {lead.email}: {risk_words}. Requesting revision...")
+        messages.append({"role": "assistant", "content": json.dumps(output.model_dump())})
         messages.append({
             "role": "user",
-            "content": (
-                f"This email contains spam trigger words: {', '.join(spam_found)}. "
-                "Rewrite avoiding ALL of those words. Return only JSON."
-            ),
+            "content": f"Please revise to remove these specific words: {', '.join(risk_words)}. Return JSON only.",
         })
-        response = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=messages,
-            temperature=OPENAI_TEMPERATURE,
-            max_tokens=OPENAI_MAX_TOKENS,
-        )
-        result = _clean_json_response(response.choices[0].message.content)
+        try:
+            output = llm.generate_email(messages)
+        except Exception as e:
+            logger.warning(f"Revision request failed, keeping initial valid output: {e}")
 
-    # Append unsubscribe footer
-    result["body"] = result["body"].rstrip() + UNSUBSCRIBE_FOOTER
+    body = output.body.rstrip() + settings.UNSUBSCRIBE_FOOTER
 
-    logger.info(f"Generated email for {lead.email}: subject='{result['subject']}'")
-    return result
+    return {
+        "subject": output.subject,
+        "body": body,
+    }
 
 
-def generate_email_for_lead(lead_id: int, campaign_id: int = None) -> Optional[dict]:
+def generate_email_for_lead(lead_id: int, campaign_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """
-    Generate and store email for a specific lead.
-
-    Returns:
-        dict with email details or None if failed
+    Generate and persist email record for a single lead.
     """
     with get_session() as session:
         lead = session.get(Lead, lead_id)
@@ -175,72 +101,70 @@ def generate_email_for_lead(lead_id: int, campaign_id: int = None) -> Optional[d
             return None
 
         if lead.status in (LeadStatus.EMAILED, LeadStatus.REPLIED, LeadStatus.BOUNCED):
-            logger.info(f"Lead {lead_id} already processed, skipping")
+            logger.info(f"Lead {lead_id} already reached out to, skipping")
             return None
 
         try:
-            # Get high-performing examples
-            from modules.ai_engine.optimizer import get_top_performing_templates
-            examples = get_top_performing_templates(limit=3)
-        except Exception:
-            examples = None
+            email_data = generate_email(lead)
 
-        try:
-            email_data = generate_email(lead, high_performing_examples=examples)
+            # Generate deterministic idempotency key for this email record
+            import uuid
+            idempotency_key = f"email:{lead.organization_id}:{campaign_id or 0}:{lead.id}:{uuid.uuid4().hex[:8]}"
 
-            # Store in database
             record = EmailRecord(
+                organization_id=lead.organization_id,
+                campaign_id=campaign_id or lead.campaign_id,
                 lead_id=lead.id,
                 subject=email_data["subject"],
                 body=email_data["body"],
                 email_type=EmailType.INITIAL,
                 status=EmailStatus.PENDING,
+                idempotency_key=idempotency_key,
             )
             session.add(record)
             lead.status = LeadStatus.EMAIL_GENERATED
+            session.flush()
 
             return {
                 "lead_id": lead.id,
                 "email": lead.email,
-                "subject": email_data["subject"],
-                "body": email_data["body"],
+                "subject": record.subject,
+                "body": record.body,
                 "record_id": record.id,
             }
-
         except Exception as e:
             logger.error(f"Failed to generate email for lead {lead_id}: {e}")
             return None
 
 
 def generate_emails_batch(
-    lead_ids: list[int] = None,
-    campaign_id: int = None,
+    lead_ids: Optional[List[int]] = None,
+    campaign_id: Optional[int] = None,
+    organization_id: Optional[int] = None,
     limit: int = 50,
-) -> dict:
+) -> Dict[str, Any]:
     """
-    Generate emails for a batch of leads.
-    
-    Returns:
-        dict with generation stats
+    Generate emails in batch for eligible leads.
     """
     with get_session() as session:
-        query = session.query(Lead).filter(
+        query = session.query(Lead.id).filter(
             Lead.status.in_([LeadStatus.NEW, LeadStatus.ENRICHED])
         )
+        if organization_id:
+            query = query.filter(Lead.organization_id == organization_id)
         if campaign_id:
-            query = query.filter_by(campaign_id=campaign_id)
+            query = query.filter(Lead.campaign_id == campaign_id)
         if lead_ids:
             query = query.filter(Lead.id.in_(lead_ids))
 
-        leads = query.limit(limit).all()
-        target_ids = [lead.id for lead in leads]
+        target_ids = [r[0] for r in query.limit(limit).all()]
 
     generated = 0
     failed = 0
 
     for lead_id in target_ids:
-        result = generate_email_for_lead(lead_id, campaign_id)
-        if result:
+        res = generate_email_for_lead(lead_id, campaign_id)
+        if res:
             generated += 1
         else:
             failed += 1

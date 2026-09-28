@@ -1,6 +1,7 @@
 """
 Google Sheets Handler — Import leads from Google Sheets.
 Requires a service account with Sheets API access.
+Scoper to organization multi-tenancy.
 """
 
 import logging
@@ -10,9 +11,11 @@ from typing import Optional
 from database.database import get_session
 from database.models import Lead, LeadStatus
 from modules.lead_ingestion.validator import LeadValidator
-from config.settings import SHEETS_SERVICE_ACCOUNT_FILE
+from config.settings import BASE_DIR
 
-logger = logging.getLogger(__name__)
+SHEETS_SERVICE_ACCOUNT_FILE = str(BASE_DIR / "config" / "credentials" / "sheets_service_account.json")
+
+logger = logging.getLogger("leadflow.sheets")
 
 
 def _get_sheets_client():
@@ -42,130 +45,51 @@ def _get_sheets_client():
     return gspread.authorize(credentials)
 
 
-def fetch_leads_from_sheet(
-    spreadsheet_url: str,
-    worksheet_name: Optional[str] = None,
-) -> dict:
-    """
-    Fetch lead data from a Google Sheet.
-    
-    Args:
-        spreadsheet_url: Full URL or spreadsheet ID
-        worksheet_name: Specific worksheet name (default: first sheet)
-        
-    Returns:
-        dict with keys: leads, errors, stats
-    """
-    try:
-        client = _get_sheets_client()
-    except (ImportError, FileNotFoundError) as e:
-        return {
-            "leads": [],
-            "errors": [str(e)],
-            "stats": {"total": 0, "valid": 0, "invalid": 0, "duplicate": 0},
-        }
-
-    try:
-        # Open spreadsheet
-        if spreadsheet_url.startswith("http"):
-            spreadsheet = client.open_by_url(spreadsheet_url)
-        else:
-            spreadsheet = client.open_by_key(spreadsheet_url)
-
-        # Select worksheet
-        if worksheet_name:
-            worksheet = spreadsheet.worksheet(worksheet_name)
-        else:
-            worksheet = spreadsheet.sheet1
-
-        # Get all records as dicts
-        records = worksheet.get_all_records()
-
-        if not records:
-            return {
-                "leads": [],
-                "errors": ["Sheet is empty or has no data rows."],
-                "stats": {"total": 0, "valid": 0, "invalid": 0, "duplicate": 0},
-            }
-
-        # Map to our schema
-        raw_leads = []
-        for record in records:
-            # Flexible column matching (case-insensitive)
-            normalized = {k.strip().lower().replace(" ", "_"): v for k, v in record.items()}
-
-            lead_data = {
-                "first_name": str(
-                    normalized.get("first_name", normalized.get("firstname", ""))
-                ).strip(),
-                "last_name": str(
-                    normalized.get("last_name", normalized.get("lastname", ""))
-                ).strip(),
-                "email": str(
-                    normalized.get("email", normalized.get("email_address", ""))
-                ).strip(),
-                "company_name": str(
-                    normalized.get("company_name", normalized.get("company", ""))
-                ).strip(),
-                "website": str(
-                    normalized.get("website", normalized.get("url", ""))
-                ).strip() or None,
-                "industry": str(
-                    normalized.get("industry", normalized.get("sector", ""))
-                ).strip() or None,
-                "source": "sheets",
-            }
-            raw_leads.append(lead_data)
-
-        # Validate
-        validator = LeadValidator()
-        result = validator.validate_leads(raw_leads)
-
-        logger.info(
-            f"Fetched {len(records)} rows from Google Sheet, "
-            f"{result['stats']['valid']} valid leads"
-        )
-
-        return result
-
-    except Exception as e:
-        logger.error(f"Error fetching from Google Sheets: {e}")
-        return {
-            "leads": [],
-            "errors": [f"Google Sheets error: {str(e)}"],
-            "stats": {"total": 0, "valid": 0, "invalid": 0, "duplicate": 0},
-        }
-
-
 def import_sheets_to_db(
-    spreadsheet_url: str,
-    worksheet_name: Optional[str] = None,
-    campaign_id: int = None,
+    spreadsheet_id: str,
+    range_name: str = "Sheet1!A:Z",
+    campaign_id: Optional[int] = None,
+    organization_id: int = 1,
 ) -> dict:
     """
-    Fetch from Google Sheet and import valid leads into the database.
+    Fetch leads from a Google Sheet and import valid rows into the database.
     """
-    parsed = fetch_leads_from_sheet(spreadsheet_url, worksheet_name)
+    client = _get_sheets_client()
+    sheet = client.open_by_key(spreadsheet_id)
+    worksheet = sheet.get_worksheet(0)
+    rows = worksheet.get_all_records()
 
-    if not parsed["leads"]:
+    if not rows:
         return {
             "imported": 0,
-            "errors": parsed["errors"],
-            "stats": parsed["stats"],
+            "errors": ["Sheet is empty"],
+            "stats": {"total": 0, "valid": 0, "invalid": 0, "duplicate": 0},
         }
+
+    validator = LeadValidator()
+    validation_result = validator.validate_leads(rows)
+    valid_leads = validation_result["leads"]
 
     imported = 0
     db_errors = []
 
     with get_session() as session:
-        for lead_data in parsed["leads"]:
+        for lead_data in valid_leads:
             try:
-                existing = session.query(Lead).filter_by(email=lead_data["email"]).first()
+                existing = (
+                    session.query(Lead)
+                    .filter_by(
+                        organization_id=organization_id,
+                        email=lead_data["email"],
+                    )
+                    .first()
+                )
                 if existing:
-                    parsed["stats"]["duplicate"] = parsed["stats"].get("duplicate", 0) + 1
+                    validation_result["stats"]["duplicate"] = validation_result["stats"].get("duplicate", 0) + 1
                     continue
 
                 lead = Lead(
+                    organization_id=organization_id,
                     first_name=lead_data["first_name"],
                     last_name=lead_data["last_name"],
                     email=lead_data["email"],
@@ -181,10 +105,10 @@ def import_sheets_to_db(
             except Exception as e:
                 db_errors.append(f"Import failed for {lead_data.get('email')}: {str(e)}")
 
-    logger.info(f"Sheets import complete: {imported} leads imported")
+    logger.info(f"Sheets import complete: {imported} leads imported into org {organization_id}")
 
     return {
         "imported": imported,
-        "errors": parsed["errors"] + db_errors,
-        "stats": {**parsed["stats"], "imported": imported},
+        "errors": validation_result["errors"] + db_errors,
+        "stats": {**validation_result["stats"], "imported": imported},
     }

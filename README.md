@@ -1,247 +1,149 @@
-<p align="center">
-  <h1 align="center">LeadFlow AI</h1>
-  <p align="center">AI-Powered Cold Email Outreach System</p>
-  <p align="center">
-    <img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python">
-    <img src="https://img.shields.io/badge/fastapi-0.104+-green" alt="FastAPI">
-    <img src="https://img.shields.io/badge/sqlalchemy-2.0+-orange" alt="SQLAlchemy">
-    <img src="https://img.shields.io/badge/license-MIT-gray" alt="License">
-  </p>
-</p>
+# LeadFlow AI — Enterprise Outbound Intelligence & Campaign Delivery Platform
+
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg)](https://fastapi.tiangolo.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://www.postgresql.org/)
+[![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
+[![Tests](https://img.shields.io/badge/tests-58%20passed%20(100%25)-brightgreen.svg)]()
+[![License](https://img.shields.io/badge/license-MIT-gray.svg)](LICENSE)
+
+An enterprise-grade, multi-tenant outbound intelligence and cold outreach platform built for durability, security, and real deliverability.
+
+Unlike naive scripts that block web threads with `time.sleep()`, store plaintext credentials on disk, or blindly follow SSRF redirects, LeadFlow AI v2.0 is re-architected with **durable job queues, worker leases, fail-closed authentication, SSRF defenses, AES/Fernet encryption at rest, and an automated 58-test verification suite**.
 
 ---
 
-A complete cold email outreach platform that ingests leads, generates hyper-personalized emails with AI, sends via Gmail API with deliverability safeguards, tracks replies, and automates intelligent follow-ups.
+## Key Capabilities
 
-## Features
+| Layer | Architecture & Production Guarantees |
+| :--- | :--- |
+| **Multi-Tenancy** | Strict `Organization` boundaries with composite unique constraints `(organization_id, email)` and role-based permissions (`owner`, `admin`, `member`). |
+| **Durable Execution** | Distributed `SendJob` state machine (`PENDING` -> `QUEUED` -> `PROCESSING` -> `SENT`/`RETRY_WAIT`/`FAILED`) backed by atomic 60s worker leases and automatic crash recovery reapers. |
+| **Idempotency** | Deterministic `idempotency_key` per outbound message. Network timeouts or mid-flight worker restarts never trigger duplicate email sends to prospects. |
+| **Security & Cryptography** | All Google OAuth refresh tokens and SMTP secrets are encrypted at rest with Fernet (AES-128-CBC + HMAC-SHA256). Passwords use PBKDF2-HMAC-SHA256 (310,000 iterations). Fail-closed authentication. |
+| **SSRF-Defended Enrichment** | Layered website analysis: pre-flight DNS IP resolution blocks RFC 1918 private subnets, loopbacks, and cloud metadata (`169.254.169.254`). Re-validates redirects at every hop. Automated headless browser fallback for JS shells. |
+| **Sending Policy Engine** | Evidence-based deliverability gate: enforces hourly and daily sender caps, recipient suppression lists, inter-send pacing, and an automated bounce rate circuit breaker. |
+| **Domain Health Diagnostics** | Live DNS queries for MX, SPF, and DMARC authentication records to audit sender domain readiness. |
+| **AI Validation** | Pydantic-validated structured outputs with prompt-injection sanitization and content quality heuristics. |
+| **Automated Testing** | 58 comprehensive tests covering unit, integration, API, multi-tenancy, contract, e2e, and failure/recovery scenarios. |
 
-| Category | Capability |
-|----------|-----------|
-| **Lead Ingestion** | Import from CSV or Google Sheets with validation, deduplication, and flexible column mapping |
-| **Lead Enrichment** | Scrape company websites + AI summarization for industry, description, and key offering |
-| **AI Email Generation** | Personalized cold emails using Llama 3.1 70B (NVIDIA NIM) with spam word detection |
-| **Gmail Integration** | OAuth2 sending with RFC 8058 List-Unsubscribe headers, multi-account round-robin |
-| **Smart Throttling** | Random delays (30-120s), warmup-aware daily limits, exponential backoff retry |
-| **Automated Follow-Ups** | 2-day (new angle) and 5-day (breakup) follow-ups threaded via Gmail thread ID |
-| **Reply Tracking** | Inbox polling, AI + rule-based classification (interested / not interested / OOO / unsubscribe) |
-| **Performance Optimization** | Template performance scoring feeds best patterns back to AI generation |
-| **Dashboard** | Dark-mode SPA with real-time stats, pipeline breakdown, campaign controls |
+---
 
-## Tech Stack
+## Architecture Topology
 
-- **Backend:** Python 3.10+, FastAPI, SQLAlchemy 2.0, APScheduler
-- **Database:** SQLite (WAL mode) — production-ready for single-node; swap to PostgreSQL for multi-node
-- **AI:** NVIDIA NIM (Llama 3.1 70B Instruct) via OpenAI-compatible API
-- **Email:** Gmail API (OAuth2) with round-robin multi-account support
-- **Frontend:** Vanilla JS SPA, CSS custom properties, no build step required
+```text
+                          ┌───────────────────────────┐
+                          │   Frontend SPA (UI)       │
+                          └─────────────┬─────────────┘
+                                        │ HTTPS / JWT / API-Key
+                                        ▼
+                          ┌───────────────────────────┐
+                          │    FastAPI Gateway        │
+                          ├───────────────────────────┤
+                          │ • Fail-Closed Auth        │
+                          │ • Tenant Context Resolver │
+                          │ • Security Headers        │
+                          └──────┬─────────────┬──────┘
+                                 │             │
+                Enqueue SendJobs │             │ Relational Data
+                                 ▼             ▼
+┌──────────────────────────────────────┐  ┌──────────────────────────────────┐
+│ Redis / Durable Job Queue            │  │ PostgreSQL 16 (Multi-Tenant)     │
+├──────────────────────────────────────┤  ├──────────────────────────────────┤
+│ • Worker Leases (60s lock)           │  │ • Organizations / Users / Leads  │
+│ • Atomic Claims                      │  │ • Campaigns / SendJobs / Attempts│
+│ • Crash Recovery Reaper              │  │ • Encrypted Credentials (Fernet) │
+└──────────────────┬───────────────────┘  └──────────────────────────────────┘
+                   │
+                   │ Claim Job
+                   ▼
+┌──────────────────────────────────────┐
+│ Standalone Campaign Workers          │
+├──────────────────────────────────────┤
+│ • Sending Policy Engine              │
+│ • Bounce Rate Circuit Breakers       │
+│ • Idempotent Dispatch                │
+└──────┬───────────────────────┬───────┘
+       │                       │
+       ▼                       ▼
+┌──────────────────────┐ ┌──────────────────────┐
+│ EmailProvider        │ │ Layered Enrichment   │
+├──────────────────────┤ ├──────────────────────┤
+│ • GmailProvider      │ │ • SSRFSafeHTTPFetch  │
+│ • SMTPProvider       │ │ • BrowserFallback    │
+│ • MockEmailProvider  │ │ • Confidence Scorer  │
+└──────────────────────┘ └──────────────────────┘
+```
 
-## Quick Start
+---
 
-### 1. Clone & Install
+## Quick Start (Docker Compose)
 
+The recommended production deployment runs FastAPI, PostgreSQL, Redis, and Campaign Workers in decoupled containers:
+
+### 1. Clone & Configure Environment
 ```bash
 git clone https://github.com/mostlyunstable/leadflow-ai.git
 cd leadflow-ai
-pip install -r requirements.txt
-```
-
-### 2. Configure Environment
-
-```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your API key:
-
+Edit `.env` with production keys:
 ```bash
-OPENAI_API_KEY=nvapi-your-key-here
-OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
-OPENAI_MODEL=meta/llama-3.1-70b-instruct
+SECRET_KEY=$(openssl rand -hex 32)
+ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
 ```
 
-### 3. Set Up Gmail API
+### 2. Start Services
+```bash
+docker compose up -d --build
+```
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a project and enable the **Gmail API**
-3. Go to **APIs & Services > Credentials**
-4. Create an **OAuth 2.0 Client ID** (Desktop application)
-5. Download the JSON and save as `config/credentials/credentials.json`
+### 3. Verify Health & Open Dashboard
+- Open **http://localhost:8000** in your browser.
+- Health Check: `curl http://localhost:8000/health`
+- Seeded Admin: `admin@leadflow.local` / `admin123456`
 
-### 4. Run
+---
+
+## Local Development & Testing
+
+Run locally with Python 3.10+:
 
 ```bash
+# 1. Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Run migrations
+alembic upgrade head
+
+# 4. Run full test suite (58 tests)
+pytest tests/ -v
+
+# 5. Start development server
 python main.py
 ```
 
-Open **http://localhost:8000** in your browser.
+---
 
-### 5. Connect Gmail
+## Documentation
 
-Go to **Accounts** tab > **Add Account** > complete the OAuth flow.
+Full architectural and operational guides are available in the [`docs/`](docs/) directory:
 
-## Usage Workflow
+- [`docs/FINAL_ENGINEERING_REPORT.md`](docs/FINAL_ENGINEERING_REPORT.md) — Rebuild audit, before/after analysis, and verification evidence.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Comprehensive technical architecture specification.
+- [`docs/SECURITY.md`](docs/SECURITY.md) — Threat model, SSRF defenses, and cryptography controls.
+- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — Production Docker Compose and migration guide.
+- [`docs/TESTING.md`](docs/TESTING.md) — Test architecture and test runbook.
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — SRE monitoring, rate limit handling, and recovery procedures.
+- [`docs/PRODUCTION_AUDIT.md`](docs/PRODUCTION_AUDIT.md) — Original forensic audit cataloging P0–P3 vulnerabilities.
 
-```
-CSV Import  ──>  Enrich Leads  ──>  Generate Emails  ──>  Start Campaign
-                                                         │
-              ┌──────────────────────────────────────────┘
-              ▼
-         Send Emails  ──>  Track Replies  ──>  Auto Follow-Ups
-         (throttled)       (AI classified)     (2-day, 5-day)
-```
-
-1. **Import Leads** — Upload a CSV with columns: `first_name`, `last_name`, `email`, `company_name`, `website` (optional), `industry` (optional)
-2. **Enrich Leads** — Click **Enrich Leads** to scrape company websites and extract business context
-3. **Create Campaign** — Go to **Campaigns** > **New Campaign** > set name and daily send limit
-4. **Generate Emails** — Click **Generate Emails** — AI creates personalized emails for each lead
-5. **Start Campaign** — Click **Start** on your campaign. Emails send automatically with throttling
-6. **Monitor** — Overview dashboard shows real-time stats; Replies tab shows classified responses; follow-ups queue automatically
-
-## Project Structure
-
-```
-leadflow-ai/
-├── main.py                          # FastAPI entrypoint, scheduler, lifespan
-├── config/
-│   ├── settings.py                  # All config from env vars
-│   └── credentials/                 # OAuth tokens (gitignored)
-├── database/
-│   ├── database.py                  # SQLAlchemy engine, sessions
-│   └── models.py                    # 6 tables: leads, email_records, replies,
-│                                    #   campaigns, email_templates, gmail_accounts
-├── api/
-│   └── routes.py                    # ~17 REST endpoints
-├── modules/
-│   ├── ai_engine/
-│   │   ├── ai_utils.py              # Shared: OpenAI client, JSON parsing, sanitization
-│   │   ├── generator.py             # Cold email generation
-│   │   ├── followup_generator.py    # Follow-up generation (FU-1, FU-2)
-│   │   └── optimizer.py             # Template performance tracking
-│   ├── email_sender/
-│   │   ├── gmail_client.py          # Gmail OAuth2 client
-│   │   ├── account_manager.py       # Multi-account round-robin
-│   │   └── batch_sender.py          # Throttled batch sending
-│   ├── lead_ingestion/
-│   │   ├── csv_handler.py           # CSV parsing with flexible column mapping
-│   │   ├── sheets_handler.py        # Google Sheets import
-│   │   └── validator.py             # Email validation, dedup, disposable detection
-│   ├── lead_enrichment/
-│   │   └── enricher.py              # Website scraping + AI summarization
-│   ├── reply_tracker/
-│   │   ├── monitor.py               # Inbox polling, bounce detection
-│   │   └── classifier.py            # Rule-based + AI reply classification
-│   └── scheduler/
-│       └── followup_scheduler.py    # Automated follow-up timing
-├── dashboard/
-│   ├── templates/index.html         # SPA dashboard
-│   └── static/
-│       ├── css/styles.css           # Dark theme, responsive
-│       └── js/dashboard.js          # All UI interactions
-└── alembic/                         # Database migrations (placeholder)
-```
-
-## API Reference
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/leads/upload-csv` | Upload CSV of leads |
-| `POST` | `/api/leads/sync-sheets` | Import from Google Sheets |
-| `GET` | `/api/leads` | List leads (filter by status, campaign) |
-| `DELETE` | `/api/leads/{id}` | Delete a lead |
-| `POST` | `/api/leads/enrich` | Trigger enrichment (background) |
-| `POST` | `/api/emails/generate` | Generate AI emails (background) |
-| `GET` | `/api/emails` | List email records (filter by status, type) |
-| `POST` | `/api/campaigns/create` | Create a campaign |
-| `GET` | `/api/campaigns` | List all campaigns |
-| `POST` | `/api/campaigns/{id}/start` | Start sending |
-| `POST` | `/api/campaigns/{id}/pause` | Pause sending |
-| `GET` | `/api/replies` | List replies (filter by classification) |
-| `POST` | `/api/replies/check` | Trigger inbox check (background) |
-| `POST` | `/api/followups/check` | Queue eligible follow-ups |
-| `GET` | `/api/followups/status` | Follow-up pipeline status |
-| `POST` | `/api/accounts/add` | Add Gmail account (OAuth) |
-| `GET` | `/api/accounts` | List Gmail accounts |
-| `POST` | `/api/accounts/health-check` | Run health check |
-| `GET` | `/api/stats` | Dashboard statistics |
-| `GET` | `/api/stats/optimization` | Email optimization insights |
-
-Interactive API docs at **http://localhost:8000/docs**
-
-## Configuration
-
-All settings are configurable via environment variables or `.env`:
-
-```bash
-# ── AI ──────────────────────────────────────
-OPENAI_API_KEY=                    # NVIDIA NIM / OpenAI API key
-OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
-OPENAI_MODEL=meta/llama-3.1-70b-instruct
-OPENAI_MAX_TOKENS=500
-OPENAI_TEMPERATURE=0.8
-
-# ── Email Sending ───────────────────────────
-DAILY_SEND_LIMIT=50                # Max emails per account per day
-MIN_DELAY_SECONDS=30               # Minimum delay between sends
-MAX_DELAY_SECONDS=120              # Maximum delay between sends
-MAX_RETRIES=3                      # Retry attempts per email
-
-# ── Warmup ──────────────────────────────────
-WARMUP_ENABLED=true
-WARMUP_START_LIMIT=10              # Starting daily limit
-WARMUP_INCREMENT=5                 # Daily increase
-
-# ── Follow-Ups ──────────────────────────────
-FOLLOWUP_1_DAYS=2                  # Days before first follow-up
-FOLLOWUP_2_DAYS=5                  # Days before second follow-up
-
-# ── Reply Monitoring ────────────────────────
-REPLY_CHECK_INTERVAL_MINUTES=5     # Inbox poll frequency
-
-# ── Scraping ────────────────────────────────
-SCRAPE_TIMEOUT=10                  # Website scrape timeout (seconds)
-
-# ── Server ──────────────────────────────────
-HOST=0.0.0.0
-PORT=8000
-DEBUG=true
-DASHBOARD_API_KEY=                 # Set to require API key auth
-CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
-
-# ── Logging ─────────────────────────────────
-LOG_LEVEL=INFO
-LOG_MAX_BYTES=10485760             # 10 MB per log file
-LOG_BACKUP_COUNT=5                 # Number of rotated log files
-```
-
-## Deliverability Safeguards
-
-| Feature | Implementation |
-|---------|---------------|
-| Daily send limits | Per-account, warmup-aware (starts at 10, +5/day) |
-| Random delays | 30-120 seconds between sends |
-| Exponential backoff | 2^attempt + jitter on failures |
-| Email format | Plain text only (higher deliverability) |
-| Spam filter | 120+ trigger words checked before sending |
-| Unsubscribe | RFC 8058 One-Click List-Unsubscribe header + footer |
-| Bounce detection | Automatic via inbox polling |
-| Multi-account | Round-robin rotation across connected accounts |
-
-## Architecture
-
-```
-CSV/Sheets ──> Lead Import ──> Enrichment ──> AI Generation ──> Gmail Send
-                  │                                              │
-                  ▼                                              ▼
-              SQLite DB ─────────────────────────────────── Reply Tracking
-                  │                                              │
-                  ▼                                              ▼
-             Dashboard  <────────────────────── Classification (AI + Rules)
-                                                         │
-                                                         ▼
-                                                   Follow-Up Scheduler
-                                                   (2-day, 5-day)
-```
+---
 
 ## License
 
-Private — All rights reserved.
+MIT License. See [LICENSE](LICENSE) for details.

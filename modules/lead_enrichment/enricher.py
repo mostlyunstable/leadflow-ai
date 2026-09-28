@@ -1,326 +1,108 @@
 """
-Lead Enrichment Engine — Scrape company websites and extract key information.
-Uses BeautifulSoup for parsing and OpenAI for intelligent summarization.
+Lead Enrichment Engine.
+Uses the layered SSRF-safe enrichment pipeline to extract verified company context.
+Updates lead profiles and creates persistent EnrichmentResult audit records.
 """
 
 import logging
-import re
-import time
-from typing import Optional
-from urllib.parse import urljoin, urlparse
+from typing import Optional, Dict, Any
 
-import requests
-from bs4 import BeautifulSoup
-
-from config.settings import (
-    SCRAPE_TIMEOUT,
-    SCRAPE_USER_AGENT,
-    OPENAI_API_KEY,
-    OPENAI_MODEL,
-    OPENAI_BASE_URL,
-)
+from core.config import settings
 from database.database import get_session
-from database.models import Lead, LeadStatus
-from modules.ai_engine.ai_utils import get_openai_client, clean_json_response
+from database.models import Lead, LeadStatus, Company, EnrichmentResult, utc_now
+from modules.lead_enrichment.pipeline import EnrichmentPipeline, ExtractedProfile
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("leadflow.enricher")
 
 
 class LeadEnricher:
-    """Scrapes company websites and enriches lead data with AI summarization."""
-
-    MAX_REDIRECTS = 5
-    MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5 MB
+    """
+    Enriches leads with website data using SSRF-safe layered fetching.
+    """
 
     def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": SCRAPE_USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "en-US,en;q=0.9",
-        })
-        self._robots_cache: dict[str, bool] = {}
-
-    def _is_allowed_by_robots(self, url: str) -> bool:
-        """Check robots.txt to see if scraping is allowed."""
-        parsed = urlparse(url)
-        base = f"{parsed.scheme}://{parsed.netloc}"
-        if base in self._robots_cache:
-            return self._robots_cache[base]
-
-        try:
-            robots_url = f"{base}/robots.txt"
-            resp = self.session.get(robots_url, timeout=5)
-            if resp.status_code == 200:
-                # Simple check: look for Disallow: / with our user-agent
-                text = resp.text.lower()
-                if "disallow: /" in text and f"user-agent: {SCRAPE_USER_AGENT.lower()}" in text:
-                    self._robots_cache[base] = False
-                    return False
-        except Exception:
-            pass  # If we can't fetch robots.txt, assume allowed
-
-        self._robots_cache[base] = True
-        return True
-
-    def scrape_website(self, url: str) -> Optional[dict]:
-        """
-        Scrape a company website for relevant information.
-        
-        Returns:
-            dict with keys: title, meta_description, headings, content, about_content
-        """
-        if not url:
-            return None
-
-        # Normalize URL
-        if not url.startswith(("http://", "https://")):
-            url = f"https://{url}"
-
-        # Respect robots.txt
-        if not self._is_allowed_by_robots(url):
-            logger.info(f"Blocked by robots.txt: {url}")
-            return None
-
-        scraped = {
-            "title": "",
-            "meta_description": "",
-            "headings": [],
-            "content": "",
-            "about_content": "",
-            "url": url,
-        }
-
-        try:
-            # Scrape homepage with redirect loop protection
-            resp = self.session.get(
-                url,
-                timeout=SCRAPE_TIMEOUT,
-                allow_redirects=True,
-                max_redirects=self.MAX_REDIRECTS,
-            )
-            resp.raise_for_status()
-
-            # Guard against large responses
-            content_length = int(resp.headers.get("Content-Length", 0))
-            if content_length > self.MAX_CONTENT_LENGTH:
-                logger.warning(f"Response too large ({content_length} bytes) for {url}")
-                return None
-
-            soup = BeautifulSoup(resp.text, "html.parser")
-
-            # Remove script/style tags
-            for tag in soup(["script", "style", "nav", "footer", "header"]):
-                tag.decompose()
-
-            # Extract metadata
-            scraped["title"] = soup.title.string.strip() if soup.title and soup.title.string else ""
-
-            meta_desc = soup.find("meta", attrs={"name": "description"})
-            if meta_desc and meta_desc.get("content"):
-                scraped["meta_description"] = meta_desc["content"].strip()
-
-            # Extract headings
-            for tag in ["h1", "h2", "h3"]:
-                for heading in soup.find_all(tag, limit=5):
-                    text = heading.get_text(strip=True)
-                    if text and len(text) > 3:
-                        scraped["headings"].append(text)
-
-            # Extract body content (first 1500 chars of visible text)
-            body_text = soup.get_text(separator=" ", strip=True)
-            # Sanitize: collapse whitespace and strip control characters
-            body_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', body_text)
-            body_text = re.sub(r'\s+', ' ', body_text).strip()
-            scraped["content"] = body_text[:1500]
-
-            # Try to find and scrape About page
-            about_url = self._find_about_page(soup, url)
-            if about_url:
-                scraped["about_content"] = self._scrape_about_page(about_url)
-
-        except requests.RequestException as e:
-            logger.warning(f"Failed to scrape {url}: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"Unexpected error scraping {url}: {e}")
-            return None
-
-        return scraped
-
-    def _find_about_page(self, soup: BeautifulSoup, base_url: str) -> Optional[str]:
-        """Find the About page URL from the homepage."""
-        about_patterns = ["about", "about-us", "about_us", "who-we-are", "our-story"]
-
-        for link in soup.find_all("a", href=True):
-            href = link["href"].lower()
-            link_text = link.get_text(strip=True).lower()
-
-            if any(pattern in href or pattern in link_text for pattern in about_patterns):
-                return urljoin(base_url, link["href"])
-
-        return None
-
-    def _scrape_about_page(self, url: str) -> str:
-        """Scrape the about page for company description."""
-        try:
-            resp = self.session.get(url, timeout=SCRAPE_TIMEOUT, allow_redirects=True)
-            resp.raise_for_status()
-
-            soup = BeautifulSoup(resp.text, "html.parser")
-            for tag in soup(["script", "style", "nav", "footer", "header"]):
-                tag.decompose()
-
-            return soup.get_text(separator=" ", strip=True)[:1000]
-        except Exception as e:
-            logger.warning(f"Failed to scrape about page {url}: {e}")
-            return ""
-
-    def summarize_with_ai(self, scraped_data: dict, company_name: str) -> dict:
-        """
-        Use OpenAI to summarize scraped data into structured enrichment.
-        
-        Returns:
-            dict with keys: company_description, industry, key_offering
-        """
-        if not OPENAI_API_KEY:
-            logger.warning("OpenAI API key not set, skipping AI enrichment")
-            return self._basic_enrichment(scraped_data)
-
-        try:
-            client = get_openai_client()
-
-            # Build context
-            context_parts = [f"Company: {company_name}"]
-            if scraped_data.get("title"):
-                context_parts.append(f"Website title: {scraped_data['title']}")
-            if scraped_data.get("meta_description"):
-                context_parts.append(f"Meta description: {scraped_data['meta_description']}")
-            if scraped_data.get("headings"):
-                context_parts.append(f"Key headings: {', '.join(scraped_data['headings'][:5])}")
-            if scraped_data.get("about_content"):
-                context_parts.append(f"About page excerpt: {scraped_data['about_content'][:500]}")
-            elif scraped_data.get("content"):
-                context_parts.append(f"Homepage excerpt: {scraped_data['content'][:500]}")
-
-            context = "\n".join(context_parts)
-
-            response = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a business analyst. Given website data about a company, "
-                            "extract and return a JSON object with exactly these keys:\n"
-                            '- "company_description": A concise 1-2 sentence description of what the company does\n'
-                            '- "industry": The company\'s primary industry/sector (e.g., "SaaS", "E-commerce", "Healthcare Tech")\n'
-                            '- "key_offering": Their main product or service in one sentence\n'
-                            "Return ONLY valid JSON, no markdown."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": context,
-                    },
-                ],
-                temperature=0.3,
-                max_tokens=300,
-            )
-
-            import json
-            result_text = response.choices[0].message.content.strip()
-            return clean_json_response(result_text)
-
-        except Exception as e:
-            logger.error(f"AI enrichment failed for {company_name}: {e}")
-            return self._basic_enrichment(scraped_data)
-
-    def _basic_enrichment(self, scraped_data: dict) -> dict:
-        """Fallback enrichment without AI — extract what we can."""
-        return {
-            "company_description": scraped_data.get("meta_description", ""),
-            "industry": "",
-            "key_offering": scraped_data.get("title", ""),
-        }
+        self.pipeline = EnrichmentPipeline()
 
     def enrich_lead(self, lead_id: int) -> bool:
         """
-        Enrich a single lead by scraping their company website.
-        Returns True if enrichment was successful.
+        Enrich a single lead by scraping and analyzing their company website.
+        Stores persistent audit records in `enrichment_results`.
         """
         with get_session() as session:
             lead = session.get(Lead, lead_id)
             if not lead:
-                logger.error(f"Lead {lead_id} not found")
+                logger.error(f"Lead {lead_id} not found for enrichment")
                 return False
 
-            if lead.enriched:
-                logger.info(f"Lead {lead_id} already enriched, skipping")
+            if not lead.website:
+                logger.info(f"Lead {lead_id} has no website URL to enrich")
+                lead.status = LeadStatus.ENRICHED
                 return True
 
-            # Scrape website
-            scraped = None
-            if lead.website:
-                scraped = self.scrape_website(lead.website)
+            lead.status = LeadStatus.ENRICHING
+            session.flush()
 
-            # Summarize
-            if scraped:
-                enrichment = self.summarize_with_ai(scraped, lead.company_name)
+            # Execute pipeline
+            profile: ExtractedProfile = self.pipeline.process(
+                url=lead.website,
+                company_name=lead.company_name or "",
+            )
+
+            # Persist enrichment audit record
+            audit_record = EnrichmentResult(
+                organization_id=lead.organization_id,
+                lead_id=lead.id,
+                target_url=lead.website,
+                resolved_ip=profile.resolved_ip,
+                fetch_method=profile.fetch_method,
+                http_status=profile.http_status,
+                title=profile.title,
+                meta_description=profile.meta_description,
+                headings_json=profile.headings,
+                extracted_text=profile.clean_text[:1500] if profile.clean_text else None,
+                summary_description=profile.company_description,
+                key_offering=profile.key_offering,
+                confidence_score=profile.confidence_score,
+            )
+            session.add(audit_record)
+
+            if profile.confidence_score > 0.0 or not profile.error:
+                lead.company_description = profile.company_description
+                lead.key_offering = profile.key_offering
+                lead.enriched = True
+                lead.status = LeadStatus.ENRICHED
+                logger.info(f"Successfully enriched lead {lead_id} ({lead.email}) with confidence {profile.confidence_score}")
+                return True
             else:
-                # Minimal enrichment from available data
-                enrichment = {
-                    "company_description": "",
-                    "industry": lead.industry or "",
-                    "key_offering": "",
-                }
+                logger.warning(f"Enrichment yielded low confidence/error for lead {lead_id}: {profile.error}")
+                lead.status = LeadStatus.ENRICHED  # Mark enriched with available data so funnel proceeds
+                return False
 
-            # Update lead
-            lead.company_description = enrichment.get("company_description", "")
-            if enrichment.get("industry"):
-                lead.industry = enrichment["industry"]
-            lead.key_offering = enrichment.get("key_offering", "")
-            lead.enriched = True
-            lead.status = LeadStatus.ENRICHED
-
-            logger.info(f"Enriched lead {lead_id}: {lead.full_name} @ {lead.company_name}")
-            return True
-
-    def enrich_all_pending(self, delay: float = 1.0) -> dict:
+    def enrich_all_pending(self, organization_id: Optional[int] = None, limit: int = 50) -> Dict[str, Any]:
         """
-        Enrich all leads that haven't been enriched yet.
-        
-        Args:
-            delay: Seconds between scrape requests (rate limiting)
-            
-        Returns:
-            dict with enrichment stats
+        Enrich pending leads for an organization.
         """
         with get_session() as session:
-            pending = session.query(Lead).filter_by(enriched=False).all()
-            lead_ids = [lead.id for lead in pending]
+            query = session.query(Lead.id).filter(
+                Lead.status.in_([LeadStatus.NEW]),
+                Lead.website.isnot(None),
+            )
+            if organization_id:
+                query = query.filter(Lead.organization_id == organization_id)
+            target_ids = [r[0] for r in query.limit(limit).all()]
 
-        total = len(lead_ids)
-        success = 0
-        failed = 0
+        enriched_count = 0
+        failed_count = 0
 
-        for idx, lead_id in enumerate(lead_ids):
-            logger.info(f"Enriching lead {idx + 1}/{total}...")
-            try:
-                if self.enrich_lead(lead_id):
-                    success += 1
-                else:
-                    failed += 1
-            except Exception as e:
-                logger.error(f"Failed to enrich lead {lead_id}: {e}")
-                failed += 1
-
-            # Rate limiting
-            if idx < total - 1:
-                time.sleep(delay)
+        for lead_id in target_ids:
+            success = self.enrich_lead(lead_id)
+            if success:
+                enriched_count += 1
+            else:
+                failed_count += 1
 
         return {
-            "total": total,
-            "enriched": success,
-            "failed": failed,
+            "total": len(target_ids),
+            "enriched": enriched_count,
+            "failed": failed_count,
         }

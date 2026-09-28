@@ -1,37 +1,35 @@
 """
-Follow-Up Scheduler — Manages automated follow-up timing and execution.
-Uses APScheduler for background job scheduling.
+Follow-Up Scheduler — Manages automated follow-up timing and queueing.
+Enforces timezone-aware UTC datetime comparisons and multi-tenant scoping.
 """
 
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Optional, Dict, Any, List
 
-from config.settings import FOLLOWUP_1_DAYS, FOLLOWUP_2_DAYS
+from core.config import settings
+from core.queue import DurableQueue
 from database.database import get_session
 from database.models import (
     Lead, LeadStatus, EmailRecord, EmailType, EmailStatus,
-    Campaign, CampaignStatus,
+    Campaign, CampaignStatus, utc_now
 )
 from modules.ai_engine.followup_generator import generate_followup_for_lead
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("leadflow.scheduler.followup")
 
 
 class FollowUpScheduler:
     """
-    Determines which leads need follow-ups and queues them for sending.
-    Runs as a scheduled job via APScheduler.
+    Identifies leads eligible for follow-ups and creates durable jobs in the queue.
     """
 
-    def check_and_queue_followups(self, campaign_id: int = None) -> dict:
+    def __init__(self):
+        self.queue = DurableQueue()
+
+    def check_and_queue_followups(self, campaign_id: Optional[int] = None) -> Dict[str, Any]:
         """
-        Check all eligible leads and generate follow-up emails.
-        
-        Args:
-            campaign_id: Optional campaign filter
-            
-        Returns:
-            dict with scheduling stats
+        Check all eligible leads and queue follow-up emails safely with durable jobs.
         """
         stats = {
             "followup_1_queued": 0,
@@ -40,21 +38,11 @@ class FollowUpScheduler:
             "errors": 0,
         }
 
-        # Check if campaign is active
-        if campaign_id:
-            with get_session() as session:
-                campaign = session.get(Campaign, campaign_id)
-                if not campaign or campaign.status != CampaignStatus.ACTIVE:
-                    logger.info(f"Campaign {campaign_id} not active, skipping follow-ups")
-                    return stats
+        now = utc_now()
+        followup_1_cutoff = now - timedelta(days=settings.FOLLOWUP_1_DAYS)
+        followup_2_cutoff = now - timedelta(days=settings.FOLLOWUP_2_DAYS)
 
-        now = datetime.utcnow()
-        followup_1_cutoff = now - timedelta(days=FOLLOWUP_1_DAYS)
-        followup_2_cutoff = now - timedelta(days=FOLLOWUP_2_DAYS)
-
-        # ── Follow-Up 1: Leads emailed > 2 days ago without reply ────────
-        # Collect eligible lead IDs in a short-lived session, then generate outside
-        eligible_lead_ids: list[int] = []
+        # ── Follow-Up 1: Leads emailed >= 2 days ago without reply ────────
         with get_session() as session:
             query = session.query(Lead).filter(
                 Lead.status == LeadStatus.EMAILED,
@@ -62,9 +50,9 @@ class FollowUpScheduler:
             if campaign_id:
                 query = query.filter(Lead.campaign_id == campaign_id)
 
-            emailed_leads = query.all()
-
-            for lead in emailed_leads:
+            leads_f1 = query.all()
+            target_f1 = []
+            for lead in leads_f1:
                 initial = (
                     session.query(EmailRecord)
                     .filter_by(
@@ -77,43 +65,40 @@ class FollowUpScheduler:
                 if not initial or not initial.sent_at:
                     continue
 
-                if initial.sent_at > followup_1_cutoff:
-                    stats["skipped"] += 1
-                    continue
+                sent_at = initial.sent_at
+                if sent_at.tzinfo is None:
+                    sent_at = sent_at.replace(tzinfo=timezone.utc)
 
-                existing = (
-                    session.query(EmailRecord)
-                    .filter_by(lead_id=lead.id, email_type=EmailType.FOLLOWUP_1)
-                    .first()
-                )
-                if existing:
-                    stats["skipped"] += 1
-                    continue
+                if sent_at <= followup_1_cutoff:
+                    target_f1.append((lead.id, lead.organization_id, lead.campaign_id))
 
-                eligible_lead_ids.append(lead.id)
-
-        for lead_id in eligible_lead_ids:
+        for lead_id, org_id, camp_id in target_f1:
             try:
-                result = generate_followup_for_lead(lead_id, EmailType.FOLLOWUP_1)
-                if result:
+                res = generate_followup_for_lead(lead_id, EmailType.FOLLOWUP_1)
+                if res:
+                    self.queue.enqueue_send_job(
+                        organization_id=org_id,
+                        campaign_id=camp_id,
+                        lead_id=lead_id,
+                        email_record_id=res["record_id"],
+                    )
                     stats["followup_1_queued"] += 1
-                    logger.info(f"Queued follow-up 1 for lead {lead_id}")
             except Exception as e:
+                logger.error(f"Error queueing Follow-up 1 for lead {lead_id}: {e}")
                 stats["errors"] += 1
-                logger.error(f"Failed to queue follow-up 1 for lead {lead_id}: {e}")
 
-        # ── Follow-Up 2: Leads with follow-up 1 sent > 3 more days ago ──
+        # ── Follow-Up 2: Leads sent Follow-Up 1 >= 5 days ago without reply ─
         with get_session() as session:
-            query = session.query(Lead).filter(
+            query_f2 = session.query(Lead).filter(
                 Lead.status == LeadStatus.FOLLOWUP_1_SENT,
             )
             if campaign_id:
-                query = query.filter(Lead.campaign_id == campaign_id)
+                query_f2 = query_f2.filter(Lead.campaign_id == campaign_id)
 
-            followup1_leads = query.all()
-
-            for lead in followup1_leads:
-                fu1 = (
+            leads_f2 = query_f2.all()
+            target_f2 = []
+            for lead in leads_f2:
+                f1_email = (
                     session.query(EmailRecord)
                     .filter_by(
                         lead_id=lead.id,
@@ -122,65 +107,30 @@ class FollowUpScheduler:
                     )
                     .first()
                 )
-                if not fu1 or not fu1.sent_at:
+                if not f1_email or not f1_email.sent_at:
                     continue
 
-                # Follow-up 2 should be sent FOLLOWUP_2_DAYS after the initial email,
-                # but only if enough time has passed since follow-up 1 as well
-                if fu1.sent_at > followup_2_cutoff:
-                    stats["skipped"] += 1
-                    continue
+                sent_at = f1_email.sent_at
+                if sent_at.tzinfo is None:
+                    sent_at = sent_at.replace(tzinfo=timezone.utc)
 
-                existing = (
-                    session.query(EmailRecord)
-                    .filter_by(lead_id=lead.id, email_type=EmailType.FOLLOWUP_2)
-                    .first()
-                )
-                if existing:
-                    stats["skipped"] += 1
-                    continue
+                if sent_at <= followup_2_cutoff:
+                    target_f2.append((lead.id, lead.organization_id, lead.campaign_id))
 
-                try:
-                    result = generate_followup_for_lead(lead.id, EmailType.FOLLOWUP_2)
-                    if result:
-                        stats["followup_2_queued"] += 1
-                        logger.info(f"Queued follow-up 2 for lead {lead.id}")
-                except Exception as e:
-                    stats["errors"] += 1
-                    logger.error(f"Failed to queue follow-up 2 for lead {lead.id}: {e}")
+        for lead_id, org_id, camp_id in target_f2:
+            try:
+                res = generate_followup_for_lead(lead_id, EmailType.FOLLOWUP_2)
+                if res:
+                    self.queue.enqueue_send_job(
+                        organization_id=org_id,
+                        campaign_id=camp_id,
+                        lead_id=lead_id,
+                        email_record_id=res["record_id"],
+                    )
+                    stats["followup_2_queued"] += 1
+            except Exception as e:
+                logger.error(f"Error queueing Follow-up 2 for lead {lead_id}: {e}")
+                stats["errors"] += 1
 
-        logger.info(f"Follow-up check complete: {stats}")
+        logger.info(f"Follow-up scheduling run complete: {stats}")
         return stats
-
-    def get_followup_status(self, campaign_id: int = None) -> dict:
-        """
-        Get current follow-up pipeline status.
-        
-        Returns:
-            dict with counts of leads at each stage
-        """
-        with get_session() as session:
-            query_base = session.query(Lead)
-            if campaign_id:
-                query_base = query_base.filter(Lead.campaign_id == campaign_id)
-
-            return {
-                "awaiting_followup_1": query_base.filter(
-                    Lead.status == LeadStatus.EMAILED
-                ).count(),
-                "followup_1_sent": query_base.filter(
-                    Lead.status == LeadStatus.FOLLOWUP_1_SENT
-                ).count(),
-                "followup_2_sent": query_base.filter(
-                    Lead.status == LeadStatus.FOLLOWUP_2_SENT
-                ).count(),
-                "replied": query_base.filter(
-                    Lead.status == LeadStatus.REPLIED
-                ).count(),
-                "bounced": query_base.filter(
-                    Lead.status == LeadStatus.BOUNCED
-                ).count(),
-                "unsubscribed": query_base.filter(
-                    Lead.status == LeadStatus.UNSUBSCRIBED
-                ).count(),
-            }

@@ -1,20 +1,19 @@
 """
 CSV Handler — Parse and import leads from CSV files.
-Supports flexible column mapping and encoding fallback.
+Supports flexible column mapping, encoding fallback, and organization multi-tenancy.
 """
 
 import csv
 import io
 import logging
-from typing import Optional
+from typing import Optional, Union
 
 from database.database import get_session
 from database.models import Lead, LeadStatus
 from modules.lead_ingestion.validator import LeadValidator
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("leadflow.csv")
 
-# Column name aliases for flexible mapping
 COLUMN_ALIASES = {
     "first_name": ["first_name", "firstname", "first name", "fname", "given name"],
     "last_name": ["last_name", "lastname", "last name", "lname", "surname", "family name"],
@@ -29,41 +28,23 @@ COLUMN_ALIASES = {
 
 
 def _normalize_header(header: str) -> str:
-    """Normalize a header string for matching."""
     return header.strip().lower().replace("-", "_").replace("  ", " ")
 
 
 def _map_columns(headers: list[str]) -> dict[str, Optional[int]]:
-    """
-    Map CSV columns to our schema using aliases.
-    Returns {field_name: column_index} or None if not found.
-    """
     normalized = [_normalize_header(h) for h in headers]
     mapping = {}
-
     for field, aliases in COLUMN_ALIASES.items():
         mapping[field] = None
         for alias in aliases:
             if alias in normalized:
                 mapping[field] = normalized.index(alias)
                 break
-
     return mapping
 
 
-def parse_csv_content(content: bytes | str, source: str = "csv") -> dict:
-    """
-    Parse CSV content and return structured lead data.
-    
-    Args:
-        content: Raw bytes or string content of the CSV.
-        source: Source identifier for tracking.
-        
-    Returns:
-        dict with keys: leads (list), errors (list), stats (dict)
-    """
+def parse_csv_content(content: Union[bytes, str], source: str = "csv") -> dict:
     if isinstance(content, bytes):
-        # Try to decode
         decoded = None
         for encoding in ["utf-8", "utf-8-sig", "latin-1", "cp1252"]:
             try:
@@ -71,7 +52,6 @@ def parse_csv_content(content: bytes | str, source: str = "csv") -> dict:
                 break
             except UnicodeDecodeError:
                 pass
-        
         if decoded is None:
             return {
                 "leads": [],
@@ -82,7 +62,7 @@ def parse_csv_content(content: bytes | str, source: str = "csv") -> dict:
 
     file_obj = io.StringIO(content)
     csv_reader = csv.reader(file_obj)
-    
+
     try:
         headers = next(csv_reader)
     except StopIteration:
@@ -99,10 +79,8 @@ def parse_csv_content(content: bytes | str, source: str = "csv") -> dict:
             "stats": {"total": 0, "valid": 0, "invalid": 0, "duplicate": 0},
         }
 
-    # Map columns
     column_map = _map_columns(headers)
 
-    # Check required fields
     missing_required = []
     for field in ["first_name", "last_name", "email", "company_name"]:
         if column_map.get(field) is None:
@@ -115,7 +93,6 @@ def parse_csv_content(content: bytes | str, source: str = "csv") -> dict:
             "stats": {"total": 0, "valid": 0, "invalid": 0, "duplicate": 0},
         }
 
-    # Extract leads
     raw_leads = []
     errors = []
     for row_num, row in enumerate(csv_reader, start=2):
@@ -141,20 +118,28 @@ def parse_csv_content(content: bytes | str, source: str = "csv") -> dict:
         except (IndexError, AttributeError) as e:
             errors.append(f"Row {row_num}: Parse error — {str(e)}")
 
-    # Validate
     validator = LeadValidator()
     result = validator.validate_leads(raw_leads)
-            
     return result
 
 
-def import_csv_to_db(content: bytes | str, campaign_id: int = None, source: str = "csv") -> dict:
+def import_csv_to_db(
+    filepath: Optional[str] = None,
+    content: Optional[Union[bytes, str]] = None,
+    campaign_id: Optional[int] = None,
+    organization_id: int = 1,
+    source: str = "csv",
+) -> dict:
     """
-    Parse CSV from content and import valid leads into the database.
-    
-    Returns:
-        dict with import results and stats.
+    Parse CSV from file path or content and import valid leads with tenant scoping.
     """
+    if filepath:
+        with open(filepath, "rb") as f:
+            content = f.read()
+
+    if content is None:
+        return {"imported": 0, "errors": ["No content provided"], "stats": {"total": 0}}
+
     parsed = parse_csv_content(content, source=source)
 
     if not parsed["leads"]:
@@ -170,13 +155,21 @@ def import_csv_to_db(content: bytes | str, campaign_id: int = None, source: str 
     with get_session() as session:
         for lead_data in parsed["leads"]:
             try:
-                # Check for existing lead by email
-                existing = session.query(Lead).filter_by(email=lead_data["email"]).first()
+                # Check for existing lead by email within this organization
+                existing = (
+                    session.query(Lead)
+                    .filter_by(
+                        organization_id=organization_id,
+                        email=lead_data["email"],
+                    )
+                    .first()
+                )
                 if existing:
                     parsed["stats"]["duplicate"] = parsed["stats"].get("duplicate", 0) + 1
                     continue
 
                 lead = Lead(
+                    organization_id=organization_id,
                     first_name=lead_data["first_name"],
                     last_name=lead_data["last_name"],
                     email=lead_data["email"],
@@ -192,7 +185,7 @@ def import_csv_to_db(content: bytes | str, campaign_id: int = None, source: str 
             except Exception as e:
                 db_errors.append(f"Failed to import {lead_data.get('email', 'unknown')}: {str(e)}")
 
-    logger.info(f"CSV import complete: {imported} leads imported, {len(db_errors)} errors")
+    logger.info(f"CSV import complete: {imported} leads imported into org {organization_id}")
 
     return {
         "imported": imported,

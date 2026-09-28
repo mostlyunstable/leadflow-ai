@@ -1,60 +1,44 @@
 """
-Follow-Up Email Generator — Creates contextual follow-up emails.
-Each follow-up references the previous email and adds new value.
+Follow-Up Email Generator.
+Generates contextual follow-ups referencing previous emails with new angles and value.
+Uses LLMProvider with Pydantic validation and quality checks.
 """
 
 import json
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any
 
-from config.settings import (
-    OPENAI_MODEL,
-    OPENAI_TEMPERATURE,
-    UNSUBSCRIBE_FOOTER,
-)
+from core.config import settings
 from database.database import get_session
-from database.models import Lead, EmailRecord, EmailType, EmailStatus, LeadStatus
-from modules.ai_engine.ai_utils import (
-    get_openai_client,
-    clean_json_response,
-    check_spam_words,
-    sanitize_input,
+from database.models import (
+    Lead, EmailRecord, EmailType, EmailStatus, LeadStatus, utc_now
 )
+from modules.ai_engine.ai_utils import sanitize_input, check_spam_words
+from modules.ai_engine.llm_provider import get_llm_provider, GeneratedEmailOutput
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("leadflow.followup")
 
-
-FOLLOWUP_1_PROMPT = """You are writing a follow-up cold email. This is the FIRST follow-up (sent 2 days after the original).
+FOLLOWUP_1_PROMPT = """You are writing a follow-up cold email. This is the FIRST follow-up (2 days after the initial email).
 
 RULES:
-1. Maximum 80 words
-2. Reference the previous email naturally (e.g., "Following up on my note about...")
-3. Add ONE new angle or piece of value — don't repeat the original
-4. Tone: casual, brief, human
-5. Soft CTA — question format
-6. No spam trigger words
-7. Use "Re: [original subject]" format: keep the same subject but add "Re: " prefix
-8. No exclamation marks, no emoji
-9. Plain text only
+1. Under 80 words total.
+2. Reference the previous message casually without guilt-tripping.
+3. Introduce ONE new angle, observation, or brief idea.
+4. Soft CTA question.
+5. Plain text only.
 
-Return ONLY valid JSON:
+Return ONLY a JSON object:
 {"subject": "Re: [original subject]", "body": "..."}"""
 
-
-FOLLOWUP_2_PROMPT = """You are writing the FINAL follow-up cold email. This is the SECOND follow-up (sent 5 days after the original).
+FOLLOWUP_2_PROMPT = """You are writing the FINAL breakup cold email (5 days after initial email).
 
 RULES:
-1. Maximum 60 words — extremely concise
-2. This is the LAST attempt — make it count
-3. Frame it as a "breakup" or final check-in
-4. Don't be needy or desperate
-5. One simple question or statement
-6. Tone: friendly, understanding, no pressure
-7. Use "Re: [original subject]" format
-8. No spam trigger words, no exclamation marks, no emoji
-9. Plain text only
+1. Under 60 words total.
+2. Polite, respectful breakup message acknowledging they may be busy or it's not a priority.
+3. No pressure, friendly tone.
+4. Plain text only.
 
-Return ONLY valid JSON:
+Return ONLY a JSON object:
 {"subject": "Re: [original subject]", "body": "..."}"""
 
 
@@ -63,150 +47,100 @@ def generate_followup(
     original_email: EmailRecord,
     followup_type: EmailType,
     previous_followup: Optional[EmailRecord] = None,
-) -> dict:
+    provider: Optional[Any] = None,
+) -> Dict[str, str]:
     """
-    Generate a follow-up email based on the original email and lead data.
-    
-    Args:
-        lead: The lead to follow up with
-        original_email: The initial email that was sent
-        followup_type: FOLLOWUP_1 or FOLLOWUP_2
-        previous_followup: The first follow-up (for generating the second)
-        
-    Returns:
-        dict with keys: subject, body
+    Generate contextual follow-up email.
     """
-    client = get_openai_client()
+    llm = provider or get_llm_provider()
+    system_prompt = FOLLOWUP_1_PROMPT if followup_type == EmailType.FOLLOWUP_1 else FOLLOWUP_2_PROMPT
 
-    # Select prompt
-    if followup_type == EmailType.FOLLOWUP_1:
-        system_prompt = FOLLOWUP_1_PROMPT
-    else:
-        system_prompt = FOLLOWUP_2_PROMPT
-
-    # Build context — sanitize lead fields against prompt injection
     context = (
-        f"Lead: {sanitize_input(lead.first_name)} {sanitize_input(lead.last_name)} at {sanitize_input(lead.company_name)}\n"
-        f"Industry: {sanitize_input(lead.industry or 'Unknown')}\n\n"
-        f"Original email subject: {original_email.subject}\n"
-        f"Original email body:\n{original_email.body}\n"
+        f"Recipient: {sanitize_input(lead.first_name)} {sanitize_input(lead.last_name)}\n"
+        f"Company: {sanitize_input(lead.company_name)}\n"
+        f"Original Subject: {original_email.subject}\n"
+        f"Original Body: {original_email.body[:400]}"
     )
-
-    if previous_followup and followup_type == EmailType.FOLLOWUP_2:
-        context += (
-            f"\nFirst follow-up body:\n{previous_followup.body}\n"
-        )
+    if previous_followup:
+        context += f"\nPrevious Follow-Up: {previous_followup.body[:200]}"
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": context},
+        {"role": "user", "content": f"Write the follow-up for this lead:\n{context}"},
     ]
 
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=messages,
-        temperature=OPENAI_TEMPERATURE,
-        max_tokens=300,
-    )
+    output: GeneratedEmailOutput = llm.generate_email(messages)
 
-    result = clean_json_response(response.choices[0].message.content)
+    # Ensure subject starts with 'Re: '
+    subj = output.subject
+    orig_clean = original_email.subject.replace("Re: ", "").strip()
+    if not subj.lower().startswith("re:"):
+        subj = f"Re: {orig_clean}"
 
-    if "subject" not in result or "body" not in result:
-        raise ValueError(f"Follow-up response missing keys: {result}")
+    body = output.body.rstrip() + settings.UNSUBSCRIBE_FOOTER
 
-    # Ensure Re: prefix
-    if not result["subject"].startswith("Re:"):
-        result["subject"] = f"Re: {original_email.subject}"
-
-    # Spam check
-    spam_found = check_spam_words(result["body"])
-    if spam_found:
-        logger.warning(f"Spam words in follow-up for {lead.email}: {spam_found}")
-
-    # Add unsubscribe footer
-    result["body"] = result["body"].rstrip() + UNSUBSCRIBE_FOOTER
-
-    logger.info(
-        f"Generated {followup_type.value} for {lead.email}: "
-        f"subject='{result['subject']}'"
-    )
-    return result
+    return {
+        "subject": subj,
+        "body": body,
+    }
 
 
 def generate_followup_for_lead(
     lead_id: int,
     followup_type: EmailType,
-) -> Optional[dict]:
-    """
-    Generate and store a follow-up email for a specific lead.
-    
-    Returns:
-        dict with email details or None if failed/not applicable
-    """
+) -> Optional[Dict[str, Any]]:
+    """Generate and store follow-up email record."""
     with get_session() as session:
         lead = session.get(Lead, lead_id)
         if not lead:
-            logger.error(f"Lead {lead_id} not found")
             return None
 
-        # Don't follow up if replied, bounced, or unsubscribed
+        # Verify not replied/bounced/unsubscribed
         if lead.status in (LeadStatus.REPLIED, LeadStatus.BOUNCED, LeadStatus.UNSUBSCRIBED):
-            logger.info(f"Lead {lead_id} status is {lead.status.value}, skipping follow-up")
             return None
 
-        # Get original email
         original = (
             session.query(EmailRecord)
-            .filter_by(lead_id=lead_id, email_type=EmailType.INITIAL, status=EmailStatus.SENT)
+            .filter_by(lead_id=lead.id, email_type=EmailType.INITIAL, status=EmailStatus.SENT)
             .first()
         )
         if not original:
-            logger.warning(f"No sent initial email found for lead {lead_id}")
             return None
 
-        # Get previous follow-up (for follow-up 2)
-        previous_followup = None
+        prev_followup = None
         if followup_type == EmailType.FOLLOWUP_2:
-            previous_followup = (
+            prev_followup = (
                 session.query(EmailRecord)
-                .filter_by(lead_id=lead_id, email_type=EmailType.FOLLOWUP_1, status=EmailStatus.SENT)
+                .filter_by(lead_id=lead.id, email_type=EmailType.FOLLOWUP_1, status=EmailStatus.SENT)
                 .first()
             )
 
-        # Check if this follow-up already exists
-        existing = (
-            session.query(EmailRecord)
-            .filter_by(lead_id=lead_id, email_type=followup_type)
-            .filter(EmailRecord.status.in_([EmailStatus.SENT, EmailStatus.PENDING, EmailStatus.QUEUED]))
-            .first()
-        )
-        if existing:
-            logger.info(f"{followup_type.value} already exists for lead {lead_id}")
-            return None
-
         try:
-            email_data = generate_followup(
-                lead, original, followup_type, previous_followup
-            )
+            data = generate_followup(lead, original, followup_type, prev_followup)
+            import uuid
+            idempotency_key = f"followup:{lead.organization_id}:{lead.id}:{followup_type.value}:{uuid.uuid4().hex[:8]}"
 
             record = EmailRecord(
+                organization_id=lead.organization_id,
+                campaign_id=lead.campaign_id,
                 lead_id=lead.id,
-                subject=email_data["subject"],
-                body=email_data["body"],
+                subject=data["subject"],
+                body=data["body"],
                 email_type=followup_type,
                 status=EmailStatus.PENDING,
-                gmail_thread_id=original.gmail_thread_id,
+                idempotency_key=idempotency_key,
+                provider_thread_id=original.provider_thread_id,
             )
             session.add(record)
+            session.flush()
 
             return {
                 "lead_id": lead.id,
                 "email": lead.email,
-                "subject": email_data["subject"],
-                "body": email_data["body"],
-                "followup_type": followup_type.value,
+                "subject": record.subject,
+                "body": record.body,
+                "record_id": record.id,
             }
-
         except Exception as e:
-            logger.error(f"Failed to generate {followup_type.value} for lead {lead_id}: {e}")
+            logger.error(f"Failed to generate follow-up for lead {lead_id}: {e}")
             return None

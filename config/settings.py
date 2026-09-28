@@ -1,88 +1,59 @@
 """
-Central Configuration — Cold Email Outreach System
-All settings are loaded from environment variables with sensible defaults.
+Configuration settings module (Backward Compatibility & Core Settings Re-export).
+All modern configuration is managed in `core.config.Settings`.
 """
 
-import os
 from pathlib import Path
-from dotenv import load_dotenv
+from core.config import settings, AppEnvironment
 
-# ── Load .env ────────────────────────────────────────────────────────────────
-load_dotenv(override=True)
+# ── Re-exported settings constants ───────────────────────────────────────────
+BASE_DIR = settings.LOG_DIR.parent
+DATABASE_URL = settings.DATABASE_URL
+REDIS_URL = settings.REDIS_URL
 
-# ── Paths ────────────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent.parent
-DB_DIR = BASE_DIR / "data"
-DB_DIR.mkdir(exist_ok=True)
-CREDENTIALS_DIR = BASE_DIR / "config" / "credentials"
-CREDENTIALS_DIR.mkdir(exist_ok=True)
+# Sending Limits
+DAILY_SEND_LIMIT = settings.DAILY_SEND_LIMIT
+HOURLY_SEND_LIMIT = settings.HOURLY_SEND_LIMIT
+MIN_DELAY_SECONDS = settings.MIN_DELAY_SECONDS
+MAX_DELAY_SECONDS = settings.MAX_DELAY_SECONDS
+MAX_RETRIES = settings.MAX_RETRIES
 
-# ── Database ─────────────────────────────────────────────────────────────────
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_DIR / 'outreach.db'}")
+# Follow-Up & Reply Tracking
+FOLLOWUP_1_DAYS = settings.FOLLOWUP_1_DAYS
+FOLLOWUP_2_DAYS = settings.FOLLOWUP_2_DAYS
+REPLY_CHECK_INTERVAL_MINUTES = settings.REPLY_CHECK_INTERVAL_MINUTES
 
-# ── OpenAI / NVIDIA NIM ──────────────────────────────────────────────────────
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://integrate.api.nvidia.com/v1")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "meta/llama-3.1-70b-instruct") # Optimized for Nvidia by default
-OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "500"))
-OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0.8"))
+# Scraping & Enrichment
+SCRAPE_TIMEOUT = settings.SCRAPE_TIMEOUT
+SCRAPE_USER_AGENT = settings.SCRAPE_USER_AGENT
+SCRAPE_MAX_REDIRECTS = settings.SCRAPE_MAX_REDIRECTS
+SCRAPE_MAX_CONTENT_LENGTH = settings.SCRAPE_MAX_CONTENT_LENGTH
 
-# ── Gmail API ────────────────────────────────────────────────────────────────
-GMAIL_CREDENTIALS_FILE = os.getenv(
-    "GMAIL_CREDENTIALS_FILE",
-    str(CREDENTIALS_DIR / "credentials.json"),
-)
-GMAIL_TOKEN_DIR = os.getenv(
-    "GMAIL_TOKEN_DIR",
-    str(CREDENTIALS_DIR / "tokens"),
-)
-GMAIL_SCOPES = [
-    "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/gmail.modify",
-]
+# Server & Auth
+HOST = settings.HOST
+PORT = settings.PORT
+DEBUG = settings.DEBUG
+DASHBOARD_API_KEY = settings.DASHBOARD_API_KEY
+CORS_ORIGINS = settings.CORS_ORIGINS
+SECRET_KEY = settings.SECRET_KEY
+ENCRYPTION_KEY = settings.ENCRYPTION_KEY
 
-# ── Google Sheets ────────────────────────────────────────────────────────────
-SHEETS_SERVICE_ACCOUNT_FILE = os.getenv(
-    "SHEETS_SERVICE_ACCOUNT_FILE",
-    str(CREDENTIALS_DIR / "service_account.json"),
-)
+# Gmail OAuth
+GMAIL_CREDENTIALS_FILE = settings.GMAIL_CREDENTIALS_FILE
+GMAIL_SCOPES = settings.GMAIL_SCOPES
+GMAIL_TOKEN_DIR = str(BASE_DIR / "config" / "credentials")
 
-# ── Email Sending ────────────────────────────────────────────────────────────
-DAILY_SEND_LIMIT = int(os.getenv("DAILY_SEND_LIMIT", "50"))
-MIN_DELAY_SECONDS = int(os.getenv("MIN_DELAY_SECONDS", "30"))
-MAX_DELAY_SECONDS = int(os.getenv("MAX_DELAY_SECONDS", "120"))
-MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
-WARMUP_ENABLED = os.getenv("WARMUP_ENABLED", "true").lower() == "true"
-WARMUP_START_LIMIT = int(os.getenv("WARMUP_START_LIMIT", "10"))
-WARMUP_INCREMENT = int(os.getenv("WARMUP_INCREMENT", "5"))
+# AI Settings
+OPENAI_API_KEY = settings.OPENAI_API_KEY
+OPENAI_BASE_URL = settings.OPENAI_BASE_URL
+OPENAI_MODEL = settings.OPENAI_MODEL
+OPENAI_TEMPERATURE = settings.OPENAI_TEMPERATURE
+OPENAI_MAX_TOKENS = settings.OPENAI_MAX_TOKENS
 
-# ── Follow-Up ────────────────────────────────────────────────────────────────
-FOLLOWUP_1_DAYS = int(os.getenv("FOLLOWUP_1_DAYS", "2"))
-FOLLOWUP_2_DAYS = int(os.getenv("FOLLOWUP_2_DAYS", "5"))
+# Footers & Linter
+UNSUBSCRIBE_FOOTER = settings.UNSUBSCRIBE_FOOTER
 
-# ── Reply Monitoring ─────────────────────────────────────────────────────────
-REPLY_CHECK_INTERVAL_MINUTES = int(os.getenv("REPLY_CHECK_INTERVAL_MINUTES", "5"))
-
-# ── Scraping ─────────────────────────────────────────────────────────────────
-SCRAPE_TIMEOUT = int(os.getenv("SCRAPE_TIMEOUT", "10"))
-SCRAPE_USER_AGENT = os.getenv(
-    "SCRAPE_USER_AGENT",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-)
-
-# ── Server ───────────────────────────────────────────────────────────────────
-HOST = os.getenv("HOST", "0.0.0.0")
-PORT = int(os.getenv("PORT", "8000"))
-DEBUG = os.getenv("DEBUG", "true").lower() == "true"
-DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
-CORS_ORIGINS = [
-    o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",")
-    if o.strip()
-]
-
-# ── Spam Trigger Words ───────────────────────────────────────────────────────
+# Content Quality / Risk Heuristics (formerly 'spam trigger words')
 SPAM_TRIGGER_WORDS = [
     "act now", "action required", "apply now", "buy now", "call now",
     "click here", "click below", "congratulations", "dear friend",
@@ -123,15 +94,8 @@ SPAM_TRIGGER_WORDS = [
     "you won", "your income",
 ]
 
-# ── Unsubscribe Footer ──────────────────────────────────────────────────────
-UNSUBSCRIBE_FOOTER = os.getenv(
-    "UNSUBSCRIBE_FOOTER",
-    "\n\n---\nIf you'd prefer not to hear from me, just reply 'unsubscribe' and I'll remove you immediately.",
-)
-
-# ── Logging ──────────────────────────────────────────────────────────────────
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-LOG_DIR = BASE_DIR / "logs"
-LOG_DIR.mkdir(exist_ok=True)
-LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", "10485760"))  # 10 MB
-LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "5"))
+# Logging
+LOG_LEVEL = settings.LOG_LEVEL
+LOG_DIR = settings.LOG_DIR
+LOG_MAX_BYTES = settings.LOG_MAX_BYTES
+LOG_BACKUP_COUNT = settings.LOG_BACKUP_COUNT

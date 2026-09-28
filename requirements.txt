@@ -1,31 +1,40 @@
-# LeadFlow AI — Dependencies
-# Install with: pip install -r requirements.txt
+# LeadFlow AI — Production Requirements
+# Core Framework & Web
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+python-multipart>=0.0.9
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+email-validator>=2.1.0
 
-# ── Core Framework ─────────────────────────────────────────────────────────
-fastapi>=0.100.0
-uvicorn[standard]>=0.23.0
-python-multipart>=0.0.6
+# Database & Migrations
+sqlalchemy>=2.0.28
+alembic>=1.13.1
+psycopg2-binary>=2.9.9
 
-# ── Database ───────────────────────────────────────────────────────────────
-sqlalchemy>=2.0.0
+# Distributed Queue, Cache & Pacing
+redis>=5.0.3
 
-# ── AI & NLP ───────────────────────────────────────────────────────────────
-openai>=1.0.0
+# Security & Cryptography
+cryptography>=42.0.5
 
-# ── Gmail API ──────────────────────────────────────────────────────────────
-google-api-python-client>=2.100.0
-google-auth-httplib2>=0.1.0
-google-auth-oauthlib>=1.0.0
-
-# ── Google Sheets (optional) ──────────────────────────────────────────────
-gspread>=5.10.0
-
-# ── Web Scraping ───────────────────────────────────────────────────────────
-beautifulsoup4>=4.12.0
+# Network, DNS & Deliverability
+dnspython>=2.6.1
 requests>=2.31.0
+beautifulsoup4>=4.12.3
 
-# ── Scheduling ─────────────────────────────────────────────────────────────
-apscheduler>=3.10.0
+# AI & LLM Engine
+openai>=1.14.0
 
-# ── Environment ────────────────────────────────────────────────────────────
-python-dotenv>=1.0.0
+# Google APIs
+google-api-python-client>=2.122.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.0
+gspread>=6.0.2
+
+# Testing & QA
+pytest>=8.1.1
+pytest-asyncio>=0.23.6
+pytest-mock>=3.14.0
+httpx>=0.27.0
+python-dotenv>=1.0.1

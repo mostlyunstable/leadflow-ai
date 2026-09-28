@@ -141,19 +141,7 @@ def _rule_based_classify(
     if any(pattern in body_lower for pattern in unsub_patterns):
         return ReplyClassification.UNSUBSCRIBE, 0.90
 
-    # Very short positive replies
-    short_positive = [
-        "yes", "sure", "sounds good", "interested",
-        "tell me more", "let's chat", "let's talk",
-        "send me more info", "i'd like to learn more",
-        "when can we talk", "book a call", "schedule a call",
-    ]
-    if len(body_lower) < 100:
-        for phrase in short_positive:
-            if phrase in body_lower:
-                return ReplyClassification.INTERESTED, 0.85
-
-    # Short negative replies
+    # Short negative replies — check BEFORE positive replies so 'not interested' is never matched by 'interested'
     short_negative = [
         "not interested",
         "no thanks",
@@ -169,7 +157,19 @@ def _rule_based_classify(
     if len(body_lower) < 150:
         for phrase in short_negative:
             if phrase in body_lower:
-                return ReplyClassification.NOT_INTERESTED, 0.85
+                return ReplyClassification.NOT_INTERESTED, 0.90
+
+    # Very short positive replies
+    short_positive = [
+        "yes", "sure", "sounds good", "interested",
+        "tell me more", "let's chat", "let's talk",
+        "send me more info", "i'd like to learn more",
+        "when can we talk", "book a call", "schedule a call",
+    ]
+    if len(body_lower) < 100:
+        for phrase in short_positive:
+            if phrase in body_lower and "not interested" not in body_lower:
+                return ReplyClassification.INTERESTED, 0.85
 
     # If no clear pattern, return None → fall through to AI
     return None
