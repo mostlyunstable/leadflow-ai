@@ -7,7 +7,7 @@ Enforces fail-closed rules in production environments.
 import os
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -24,7 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(BASE_DIR / ".env"),
+        env_file=[str(BASE_DIR / ".env"), "/etc/leadflow/leadflow.env"],
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -56,7 +56,7 @@ class Settings(BaseSettings):
         default=None,
         description="Fallback API key for service-to-service automation",
     )
-    CORS_ORIGINS: List[str] = Field(
+    CORS_ORIGINS: Union[List[str], str] = Field(
         default=["http://localhost:8000", "http://127.0.0.1:8000"],
     )
 
@@ -132,7 +132,7 @@ class Settings(BaseSettings):
     LOG_MAX_BYTES: int = 10 * 1024 * 1024  # 10 MB
     LOG_BACKUP_COUNT: int = 5
 
-    @field_validator("CORS_ORIGINS", mode="before")
+    @field_validator("CORS_ORIGINS", mode="after")
     @classmethod
     def assemble_cors_origins(cls, v):
         if isinstance(v, str):

@@ -10,6 +10,8 @@ import logging
 import signal
 import sys
 import time
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from typing import Optional
 from sqlalchemy.orm import Session
 

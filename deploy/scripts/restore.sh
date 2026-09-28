@@ -14,6 +14,17 @@ DB_USER="${DB_USER:-leadflow}"
 DB_HOST="${DB_HOST:-127.0.0.1}"
 DB_PORT="${DB_PORT:-5432}"
 
+# Extract credentials from /etc/leadflow/leadflow.env if present
+if [ -z "${PGPASSWORD:-}" ] && [ -f /etc/leadflow/leadflow.env ]; then
+    DB_URL=$(grep "^DATABASE_URL=" /etc/leadflow/leadflow.env | cut -d= -f2- | tr -d '"' | tr -d "'")
+    if [[ "${DB_URL}" =~ postgresql://([^:]+):([^@]+)@([^:/]+):?([0-9]*)/(.*) ]]; then
+        export PGPASSWORD="${BASH_REMATCH[2]}"
+        DB_USER="${DB_USER:-${BASH_REMATCH[1]}}"
+        DB_HOST="${DB_HOST:-${BASH_REMATCH[3]}}"
+        DB_PORT="${DB_PORT:-${BASH_REMATCH[4]:-5432}}"
+    fi
+fi
+
 if [ ! -f "${BACKUP_FILE}" ]; then
     echo "[ERROR] Backup file not found: ${BACKUP_FILE}"
     exit 1

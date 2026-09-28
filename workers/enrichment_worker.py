@@ -11,6 +11,8 @@ import sys
 import time
 import uuid
 from datetime import timedelta
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from typing import Optional
 
 from sqlalchemy import or_, and_

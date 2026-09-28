@@ -8,7 +8,7 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/leadflow-ai}"
 VENV_DIR="${APP_DIR}/.venv"
-BASE_URL="${1:-http://127.0.0.1}"
+BASE_URL="${1:-https://127.0.0.1}"
 REPORT_FILE="${APP_DIR}/docs/REAL_WORLD_PRODUCTION_VALIDATION.md"
 MATRIX_FILE="${APP_DIR}/docs/PRODUCTION_READINESS_MATRIX.md"
 LOAD_REPORT="${APP_DIR}/docs/PRODUCTION_LOAD_TEST.md"
@@ -69,21 +69,21 @@ fi
 # ------------------------------------------------------------------------------
 echo -e "\n>>> 2. Verifying PostgreSQL Migration & Schema..."
 cd "${APP_DIR}"
-source "${VENV_DIR}/bin/activate"
+export PATH="${VENV_DIR}/bin:${PATH}"
+source "${VENV_DIR}/bin/activate" 2>/dev/null || true
 
-MIGRATE_OUT=$(alembic upgrade head 2>&1 || true)
-if echo "${MIGRATE_OUT}" | grep -qiE "Running upgrade|head"; then
+if "${VENV_DIR}/bin/alembic" upgrade head >/dev/null 2>&1 && "${VENV_DIR}/bin/alembic" current 2>&1 | grep -q "head"; then
     record_result "Alembic Migrations" "PASS" "Schema upgraded to head successfully"
 else
-    record_result "Alembic Migrations" "FAIL" "Alembic migration failed: ${MIGRATE_OUT}"
+    record_result "Alembic Migrations" "FAIL" "Alembic migration failed"
 fi
 
 # Run database constraints test
-DB_TEST=$(pytest tests/integration/test_database_constraints.py -v 2>&1 || true)
+DB_TEST=$("${VENV_DIR}/bin/pytest" tests/integration/test_database_constraints.py -v 2>&1 || true)
 if echo "${DB_TEST}" | grep -q "passed"; then
     record_result "Database Constraints" "PASS" "Cascade deletes, scoped uniqueness, and transactions verified"
 else
-    record_result "Database Constraints" "FAIL" "Database constraints tests failed"
+    record_result "Database Constraints" "FAIL" "Database constraints tests failed: ${DB_TEST}"
 fi
 
 # ------------------------------------------------------------------------------
@@ -101,8 +101,8 @@ sudo systemctl stop redis-server || sudo systemctl stop redis || true
 sleep 1
 
 # Check readiness probe during Redis outage
-REDIS_OUTAGE_HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health/ready || echo "000")
-REDIS_OUTAGE_BODY=$(curl -s http://127.0.0.1:8000/health/ready || echo "")
+REDIS_OUTAGE_HTTP=$(curl -k -s -L -o /dev/null -w "%{http_code}" "${BASE_URL}/health/ready" || echo "000")
+REDIS_OUTAGE_BODY=$(curl -k -s -L "${BASE_URL}/health/ready" || echo "")
 if [ "${REDIS_OUTAGE_HTTP}" -eq 200 ] && echo "${REDIS_OUTAGE_BODY}" | grep -q "degraded"; then
     record_result "Redis Outage Degradation" "PASS" "API remains functional; Redis reported degraded without blocking traffic"
 else
@@ -178,7 +178,7 @@ else
     record_result "Nginx Syntax" "FAIL" "nginx -t reported configuration errors"
 fi
 
-NGINX_HEADERS=$(curl -sI "${BASE_URL}/" || true)
+NGINX_HEADERS=$(curl -k -sI "${BASE_URL}/" || true)
 for hdr in "X-Frame-Options: DENY" "X-Content-Type-Options: nosniff" "Referrer-Policy:"; do
     if echo "${NGINX_HEADERS}" | grep -qi "${hdr}"; then
         record_result "Security Header: ${hdr}" "PASS" "Present in response"
@@ -191,14 +191,14 @@ done
 # 6. Real Load Testing against Nginx Endpoint
 # ------------------------------------------------------------------------------
 echo -e "\n>>> 6. Running Real Load Test (100 Concurrent Users: 500, 1000, 5000, 10000 requests)..."
-python scripts/run_load_test.py --url "${BASE_URL}" --path "/health/live" --report "${LOAD_REPORT}"
+"${VENV_DIR}/bin/python" scripts/run_load_test.py --url "${BASE_URL}" --path "/health/live" --report "${LOAD_REPORT}"
 record_result "Production Load Benchmark" "PASS" "Completed load benchmark; results written to ${LOAD_REPORT}"
 
 # ------------------------------------------------------------------------------
 # 7. Real Campaign Execution & Worker Idempotency
 # ------------------------------------------------------------------------------
 echo -e "\n>>> 7. Testing End-to-End Campaign Execution & Idempotency..."
-CAMPAIGN_TEST=$(pytest tests/failure/test_concurrency_and_idempotency.py -v 2>&1 || true)
+CAMPAIGN_TEST=$("${VENV_DIR}/bin/pytest" tests/failure/test_concurrency_and_idempotency.py -v 2>&1 || true)
 if echo "${CAMPAIGN_TEST}" | grep -q "passed"; then
     record_result "Campaign Idempotency" "PASS" "Worker claim, lease recovery, and duplicate send prevention verified"
 else
@@ -213,8 +213,8 @@ echo "  Stopping PostgreSQL service..."
 sudo systemctl stop postgresql || true
 sleep 1
 
-PROBE_LIVE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health/live || echo "000")
-PROBE_READY=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health/ready || echo "000")
+PROBE_LIVE=$(curl -k -s -L -o /dev/null -w "%{http_code}" "${BASE_URL}/health/live" || echo "000")
+PROBE_READY=$(curl -k -s -L -o /dev/null -w "%{http_code}" "${BASE_URL}/health/ready" || echo "000")
 
 if [ "${PROBE_LIVE}" -eq 200 ] && [ "${PROBE_READY}" -eq 503 ]; then
     record_result "Database Failure Probe" "PASS" "/health/live is 200 (process alive); /health/ready is 503 (DB down)"
@@ -226,7 +226,7 @@ echo "  Restarting PostgreSQL service..."
 sudo systemctl start postgresql || true
 sleep 2
 
-PROBE_RESTORED=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health/ready || echo "000")
+PROBE_RESTORED=$(curl -k -s -L -o /dev/null -w "%{http_code}" "${BASE_URL}/health/ready" || echo "000")
 if [ "${PROBE_RESTORED}" -eq 200 ]; then
     record_result "Database Recovery Probe" "PASS" "/health/ready returned to 200 OK after PostgreSQL restart"
 else
@@ -262,7 +262,7 @@ fi
 # 10. Playwright Browser Capacity & Host Memory
 # ------------------------------------------------------------------------------
 echo -e "\n>>> 10. Testing Playwright Semaphore Capping & Host Memory..."
-BROWSER_TEST=$(pytest tests/failure/test_browser_resource_cap.py -v 2>&1 || true)
+BROWSER_TEST=$("${VENV_DIR}/bin/pytest" tests/failure/test_browser_resource_cap.py -v 2>&1 || true)
 if echo "${BROWSER_TEST}" | grep -q "passed"; then
     record_result "Browser Concurrency Cap" "PASS" "BoundedSemaphore(3) strictly throttles concurrent Chromium instances"
 else
@@ -273,7 +273,7 @@ fi
 # 11. Security, Tenant Isolation & Secret Masking
 # ------------------------------------------------------------------------------
 echo -e "\n>>> 11. Verifying Security, Tenant Isolation & Secret Masking..."
-SEC_TEST=$(pytest tests/security/ -v 2>&1 || true)
+SEC_TEST=$("${VENV_DIR}/bin/pytest" tests/security/ -v 2>&1 || true)
 if echo "${SEC_TEST}" | grep -q "passed"; then
     record_result "Tenant Escape & RBAC" "PASS" "BOLA/IDOR prevention and fail-closed RBAC verified"
 else
@@ -282,7 +282,8 @@ fi
 
 # Check log file for leaked credentials
 if [ -f "${APP_DIR}/logs/leadflow.log" ]; then
-    LEAK_COUNT=$(grep -E -i "password=|jwt=|secret=|api_key=" "${APP_DIR}/logs/leadflow.log" | grep -v "mask" | wc -l || echo "0")
+    LEAK_COUNT=$( (grep -E -i "password=|jwt=|secret=|api_key=" "${APP_DIR}/logs/leadflow.log" 2>/dev/null || true) | (grep -v "mask" 2>/dev/null || true) | wc -l | tr -d '[:space:]')
+    LEAK_COUNT=${LEAK_COUNT:-0}
     if [ "${LEAK_COUNT}" -eq 0 ]; then
         record_result "Log Sanitization" "PASS" "Zero unmasked secrets found in leadflow.log"
     else
@@ -294,7 +295,7 @@ fi
 # 12. Monitoring & Prometheus Metrics
 # ------------------------------------------------------------------------------
 echo -e "\n>>> 12. Verifying Prometheus Metrics Endpoint (/metrics)..."
-METRICS_OUT=$(curl -s "${BASE_URL}/metrics" || echo "")
+METRICS_OUT=$(curl -k -s -L "${BASE_URL}/metrics" || echo "")
 if echo "${METRICS_OUT}" | grep -q "leadflow_api_requests_total" && echo "${METRICS_OUT}" | grep -q "leadflow_queue_depth"; then
     record_result "Prometheus Metrics" "PASS" "/metrics exposed correctly with queue depth and request telemetry"
 else
@@ -395,5 +396,4 @@ EOF
 echo "[SUCCESS] Real VPS Production Validation completed successfully!"
 echo "Report: ${REPORT_FILE}"
 echo "Matrix: ${MATRIX_FILE}"
-EOF
-chmod +x scripts/vps_production_validation.sh
+

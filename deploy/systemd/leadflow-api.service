@@ -9,6 +9,7 @@ User=leadflow
 Group=leadflow
 WorkingDirectory=/opt/leadflow-ai
 EnvironmentFile=/etc/leadflow/leadflow.env
+Environment=PYTHONPATH=/opt/leadflow-ai
 
 # Run Uvicorn with 4 workers bound to localhost port 8000
 ExecStart=/opt/leadflow-ai/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers --forwarded-allow-ips="127.0.0.1"

@@ -9,6 +9,7 @@ User=leadflow
 Group=leadflow
 WorkingDirectory=/opt/leadflow-ai
 EnvironmentFile=/etc/leadflow/leadflow.env
+Environment=PYTHONPATH=/opt/leadflow-ai
 
 ExecStart=/opt/leadflow-ai/.venv/bin/python workers/enrichment_worker.py
 

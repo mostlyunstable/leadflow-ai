@@ -13,6 +13,8 @@ import signal
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session

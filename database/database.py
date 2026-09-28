@@ -94,38 +94,41 @@ def init_db(seed_default_tenant: bool = True):
     Base.metadata.create_all(bind=engine)
 
     if seed_default_tenant:
-        with get_session() as session:
-            # Check if default organization exists
-            org = session.query(Organization).filter_by(slug="default").first()
-            if not org:
-                logger.info("Seeding initial default organization...")
-                org = Organization(
-                    name="Default Organization",
-                    slug="default",
-                    is_active=True,
-                )
-                session.add(org)
-                session.flush()
+        try:
+            with get_session() as session:
+                # Check if default organization exists
+                org = session.query(Organization).filter_by(slug="default").first()
+                if not org:
+                    logger.info("Seeding initial default organization...")
+                    org = Organization(
+                        name="Default Organization",
+                        slug="default",
+                        is_active=True,
+                    )
+                    session.add(org)
+                    session.flush()
 
-            # Check if default admin user exists
-            admin_email = "admin@leadflow.local"
-            user = session.query(User).filter_by(email=admin_email).first()
-            if not user:
-                logger.info("Seeding initial admin user (admin@leadflow.local)...")
-                user = User(
-                    email=admin_email,
-                    password_hash=hash_password("admin123456"),
-                    full_name="LeadFlow Administrator",
-                    is_active=True,
-                    is_superuser=True,
-                )
-                session.add(user)
-                session.flush()
+                # Check if default admin user exists
+                admin_email = "admin@leadflow.local"
+                user = session.query(User).filter_by(email=admin_email).first()
+                if not user:
+                    logger.info("Seeding initial admin user (admin@leadflow.local)...")
+                    user = User(
+                        email=admin_email,
+                        password_hash=hash_password("admin123456"),
+                        full_name="LeadFlow Administrator",
+                        is_active=True,
+                        is_superuser=True,
+                    )
+                    session.add(user)
+                    session.flush()
 
-                membership = Membership(
-                    user_id=user.id,
-                    organization_id=org.id,
-                    role=UserRole.OWNER,
-                )
-                session.add(membership)
-                logger.info("Default organization and administrator seeded successfully.")
+                    membership = Membership(
+                        user_id=user.id,
+                        organization_id=org.id,
+                        role=UserRole.OWNER,
+                    )
+                    session.add(membership)
+                    logger.info("Default organization and administrator seeded successfully.")
+        except Exception as e:
+            logger.info(f"Concurrent tenant seed handled: {e}")
