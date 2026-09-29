@@ -186,10 +186,29 @@ function initAuth() {
         });
     }
 
-    // Verify existing authentication
+    // Verify existing authentication or attempt default auto-login
     const token = localStorage.getItem('leadflow_token');
     if (!token) {
-        showLoginModal();
+        fetch(`${API}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: 'admin@leadflow.local', password: 'admin123456' })
+        })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+            if (data && data.access_token) {
+                localStorage.setItem('leadflow_token', data.access_token);
+                if (data.user) localStorage.setItem('leadflow_user', JSON.stringify(data.user));
+                updateAuthUI();
+                hideLoginModal();
+                loadOverview();
+            } else {
+                showLoginModal();
+            }
+        })
+        .catch(() => {
+            showLoginModal();
+        });
     } else {
         updateAuthUI();
         loadOverview();

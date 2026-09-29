@@ -8,7 +8,7 @@ import sys
 
 TARGET_HOST = "192.168.252.2"
 TARGET_PORT = 80
-LISTEN_HOST = "127.0.0.1"
+LISTEN_HOST = None
 LISTEN_PORT = 8000
 
 async def pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
