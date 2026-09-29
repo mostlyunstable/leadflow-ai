@@ -26,7 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initModals();
     initActions();
     initSlideOvers();
-    loadOverview();
+    initAuth();
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -82,36 +82,130 @@ function switchSection(section) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  API HELPERS
+//  AUTHENTICATION & API HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-let _apiKeyCache = null;
-let _apiKeyChecked = false;
+function getAuthHeaders() {
+    const token = localStorage.getItem('leadflow_token');
+    if (token) return { 'Authorization': `Bearer ${token}` };
+    const apiKey = localStorage.getItem('leadflow_api_key');
+    if (apiKey) return { 'X-API-Key': apiKey };
+    return {};
+}
 
-async function getApiKey() {
-    if (_apiKeyChecked) return _apiKeyCache || '';
+function showLoginModal() {
+    const modal = document.getElementById('modal-login');
+    if (modal) modal.classList.add('open');
+}
 
-    try {
-        const res = await fetch(`${API}/stats`, { headers: {} });
-        if (res.ok) {
-            _apiKeyCache = '';
-            _apiKeyChecked = true;
-            return '';
-        }
-    } catch (e) {}
+function hideLoginModal() {
+    const modal = document.getElementById('modal-login');
+    if (modal) modal.classList.remove('open');
+}
 
-    const key = prompt("Enter API Key (leave blank if none configured):");
-    if (key) _apiKeyCache = key;
-    _apiKeyChecked = true;
-    return _apiKeyCache || '';
+function updateAuthUI() {
+    const token = localStorage.getItem('leadflow_token');
+    const userJson = localStorage.getItem('leadflow_user');
+    const userBadge = document.getElementById('user-badge');
+    const userDisplay = document.getElementById('user-display-email');
+    if (token && userBadge) {
+        let email = 'admin@leadflow.local';
+        try {
+            if (userJson) {
+                const u = JSON.parse(userJson);
+                email = u.email || email;
+            }
+        } catch (e) {}
+        if (userDisplay) userDisplay.textContent = email;
+        userBadge.style.display = 'flex';
+    } else if (userBadge) {
+        userBadge.style.display = 'none';
+    }
+}
+
+function initAuth() {
+    const loginForm = document.getElementById('form-login');
+    const loginError = document.getElementById('login-error');
+    const logoutBtn = document.getElementById('btn-logout');
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            localStorage.removeItem('leadflow_token');
+            localStorage.removeItem('leadflow_user');
+            updateAuthUI();
+            showLoginModal();
+            showToast('info', 'Signed Out', 'You have been signed out successfully.');
+        });
+    }
+
+    if (loginForm) {
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const emailInput = document.getElementById('login-email');
+            const passwordInput = document.getElementById('login-password');
+            const submitBtn = document.getElementById('btn-submit-login');
+            const email = emailInput ? emailInput.value.trim() : '';
+            const password = passwordInput ? passwordInput.value : '';
+
+            if (!email || !password) return;
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Signing in...';
+            if (loginError) loginError.style.display = 'none';
+
+            try {
+                const res = await fetch(`${API}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await res.json();
+                if (!res.ok) {
+                    const msg = Array.isArray(data.detail) ? data.detail[0].msg : (data.detail || 'Login failed');
+                    throw new Error(msg);
+                }
+
+                localStorage.setItem('leadflow_token', data.access_token);
+                if (data.user) {
+                    localStorage.setItem('leadflow_user', JSON.stringify(data.user));
+                }
+                updateAuthUI();
+                hideLoginModal();
+                showToast('success', 'Authenticated', `Welcome back, ${data.user?.full_name || email}`);
+                loadOverview();
+            } catch (err) {
+                if (loginError) {
+                    loginError.textContent = err.message;
+                    loginError.style.display = 'block';
+                }
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Sign In';
+            }
+        });
+    }
+
+    // Verify existing authentication
+    const token = localStorage.getItem('leadflow_token');
+    if (!token) {
+        showLoginModal();
+    } else {
+        updateAuthUI();
+        loadOverview();
+    }
 }
 
 async function apiGet(path) {
     try {
-        const apiKey = await getApiKey();
-        const res = await fetch(`${API}${path}`, {
-            headers: apiKey ? { 'X-API-Key': apiKey } : {}
-        });
+        const headers = getAuthHeaders();
+        const res = await fetch(`${API}${path}`, { headers });
+        if (res.status === 401) {
+            localStorage.removeItem('leadflow_token');
+            updateAuthUI();
+            showLoginModal();
+            throw new Error('Authentication required. Please sign in.');
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return await res.json();
     } catch (err) {
@@ -123,10 +217,10 @@ async function apiGet(path) {
 
 async function apiPost(path, data = {}, isForm = true) {
     try {
-        const apiKey = await getApiKey();
+        const headers = getAuthHeaders();
         let options = {
             method: 'POST',
-            headers: apiKey ? { 'X-API-Key': apiKey } : {}
+            headers: { ...headers }
         };
         if (isForm && !(data instanceof FormData)) {
             const fd = new FormData();
@@ -139,6 +233,12 @@ async function apiPost(path, data = {}, isForm = true) {
             options.body = JSON.stringify(data);
         }
         const res = await fetch(`${API}${path}`, options);
+        if (res.status === 401) {
+            localStorage.removeItem('leadflow_token');
+            updateAuthUI();
+            showLoginModal();
+            throw new Error('Authentication required. Please sign in.');
+        }
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.detail || `HTTP ${res.status}`);
@@ -151,6 +251,28 @@ async function apiPost(path, data = {}, isForm = true) {
     }
 }
 
+async function apiDelete(path) {
+    try {
+        const headers = getAuthHeaders();
+        const res = await fetch(`${API}${path}`, {
+            method: 'DELETE',
+            headers
+        });
+        if (res.status === 401) {
+            localStorage.removeItem('leadflow_token');
+            updateAuthUI();
+            showLoginModal();
+            throw new Error('Authentication required. Please sign in.');
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json().catch(() => ({ ok: true }));
+    } catch (err) {
+        console.error(`DELETE ${path} failed:`, err);
+        showToast('error', 'Delete Failed', err.message);
+        return null;
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  OVERVIEW
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -159,15 +281,24 @@ async function loadOverview() {
     const data = await apiGet('/stats');
     if (!data) return;
 
-    const o = data.overview;
-    const r = data.rates;
+    const o = data.overview || {};
+    const r = data.rates || {};
+    const replyRate = r.reply_rate !== undefined ? r.reply_rate : (o.reply_rate || 0);
 
-    document.getElementById('val-total-leads').textContent = o.total_leads;
-    document.getElementById('val-total-sent').textContent = o.total_sent;
-    document.getElementById('val-total-replies').textContent = o.total_replies;
-    document.getElementById('val-reply-rate').textContent = `${r.reply_rate}%`;
+    const leadsEl = document.getElementById('val-total-leads');
+    if (leadsEl) leadsEl.textContent = o.total_leads || 0;
 
-    renderPipelineBreakdown(data.lead_status_breakdown, o.total_leads);
+    const sentEl = document.getElementById('val-total-sent');
+    if (sentEl) sentEl.textContent = o.total_sent || 0;
+
+    const repliesEl = document.getElementById('val-total-replies');
+    if (repliesEl) repliesEl.textContent = o.total_replies || 0;
+
+    const rateEl = document.getElementById('val-reply-rate');
+    if (rateEl) rateEl.textContent = `${replyRate}%`;
+
+    const breakdown = data.lead_status_breakdown || data.pipeline || {};
+    renderPipelineBreakdown(breakdown, o.total_leads || 0);
     loadOverviewCounts();
 }
 
@@ -176,12 +307,14 @@ async function loadOverviewCounts() {
         apiGet('/campaigns'),
         apiGet('/accounts'),
     ]);
-    if (campaignData) {
+    if (campaignData && campaignData.campaigns) {
         const active = campaignData.campaigns.filter(c => c.status === 'active').length;
-        document.getElementById('val-active-campaigns').textContent = active;
+        const activeEl = document.getElementById('val-active-campaigns');
+        if (activeEl) activeEl.textContent = active;
     }
-    if (accountData) {
-        document.getElementById('val-accounts-count').textContent = accountData.accounts.length;
+    if (accountData && accountData.accounts) {
+        const accEl = document.getElementById('val-accounts-count');
+        if (accEl) accEl.textContent = accountData.accounts.length;
     }
 }
 
@@ -200,8 +333,9 @@ function renderPipelineBreakdown(breakdown, total) {
         { key: 'bounced', label: 'Bounced' },
     ];
 
+    const b = breakdown || {};
     const rows = stages
-        .map(s => ({ ...s, count: breakdown[s.key] || 0 }))
+        .map(s => ({ ...s, count: b[s.key] || 0 }))
         .filter(s => s.count > 0);
 
     if (rows.length === 0) {
@@ -268,10 +402,8 @@ async function loadLeads() {
 
 async function deleteLead(id) {
     if (!confirm('Delete this lead and all associated emails?')) return;
-    const apiKey = await getApiKey();
-    const headers = apiKey ? { 'X-Api-Key': apiKey } : {};
-    const res = await fetch(`${API}/leads/${id}`, { method: 'DELETE', headers });
-    if (res.ok) {
+    const res = await apiDelete(`/leads/${id}`);
+    if (res) {
         showToast('success', 'Lead Deleted');
         loadLeads();
     }
@@ -617,13 +749,9 @@ function initActions() {
     });
 
     document.getElementById('btn-enrich')?.addEventListener('click', async () => {
-        const apiKey = await getApiKey();
-        const headers = apiKey ? { 'X-API-Key': apiKey } : {};
-        const res = await fetch(`${API}/leads/enrich`, { method: 'POST', headers });
-        if (res.ok) {
+        const res = await apiPost('/leads/enrich');
+        if (res) {
             showToast('info', 'Enrichment Started', 'Running in background...');
-        } else {
-            showToast('error', 'Request Failed', `HTTP ${res.status}`);
         }
     });
 

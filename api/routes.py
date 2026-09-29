@@ -120,8 +120,8 @@ def require_roles(allowed_roles: List[str]):
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+    email: str = Field(..., min_length=3, max_length=255)
+    password: str = Field(..., min_length=1)
 
 
 class CampaignCreateRequest(BaseModel):
@@ -774,6 +774,14 @@ def get_stats(
 
     reply_rate = round((total_replies / total_sent) * 100, 1) if total_sent > 0 else 0.0
 
+    pipeline = {
+        "new": db.query(Lead).filter_by(organization_id=auth.organization_id, status=LeadStatus.NEW).count(),
+        "enriched": enriched_leads,
+        "emailed": db.query(Lead).filter_by(organization_id=auth.organization_id, status=LeadStatus.EMAILED).count(),
+        "replied": total_replies,
+        "unsubscribed": db.query(Lead).filter_by(organization_id=auth.organization_id, status=LeadStatus.UNSUBSCRIBED).count(),
+    }
+
     return {
         "overview": {
             "total_leads": total_leads,
@@ -785,13 +793,12 @@ def get_stats(
             "active_campaigns": active_campaigns,
             "reply_rate": reply_rate,
         },
-        "pipeline": {
-            "new": db.query(Lead).filter_by(organization_id=auth.organization_id, status=LeadStatus.NEW).count(),
-            "enriched": enriched_leads,
-            "emailed": db.query(Lead).filter_by(organization_id=auth.organization_id, status=LeadStatus.EMAILED).count(),
-            "replied": total_replies,
-            "unsubscribed": db.query(Lead).filter_by(organization_id=auth.organization_id, status=LeadStatus.UNSUBSCRIBED).count(),
+        "rates": {
+            "reply_rate": reply_rate,
+            "interest_rate": round((interested_replies / total_replies) * 100, 1) if total_replies > 0 else 0.0,
         },
+        "lead_status_breakdown": pipeline,
+        "pipeline": pipeline,
     }
 
 

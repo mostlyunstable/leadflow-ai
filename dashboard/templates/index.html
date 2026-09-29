@@ -72,6 +72,10 @@
                 <h1 class="page-title" id="page-title">Overview</h1>
             </div>
             <div class="top-bar-right">
+                <div class="user-badge" id="user-badge" style="display:none; align-items:center; gap:8px; margin-right:12px; font-size:13px; color:var(--text-secondary);">
+                    <span id="user-display-email" style="font-weight:500;">admin@leadflow.local</span>
+                    <button class="btn btn-ghost" id="btn-logout" title="Sign Out" style="padding:4px 8px; font-size:12px; border:1px solid var(--border-medium); border-radius:4px;">Sign Out</button>
+                </div>
                 <button class="btn btn-ghost" id="btn-refresh" title="Refresh data">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                 </button>
@@ -483,6 +487,42 @@
 
         </div>
     </main>
+
+    <!-- Login Modal -->
+    <div class="modal-overlay" id="modal-login" style="background: rgba(10, 15, 29, 0.88); backdrop-filter: blur(8px);">
+        <div class="modal" style="max-width: 420px; border: 1px solid var(--border-medium); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);">
+            <div class="modal-header" style="flex-direction: column; align-items: center; text-align: center; gap: 8px; border-bottom: 1px solid var(--border-light); padding: 24px 24px 16px 24px;">
+                <div class="brand-icon" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 10px; border-radius: 10px; display: inline-flex;">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2">
+                        <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+                    </svg>
+                </div>
+                <h3 style="font-size: 20px; font-weight: 700; margin: 0; color: var(--text-primary);">LeadFlow AI</h3>
+                <p style="font-size: 13px; color: var(--text-secondary); margin: 0;">Sign in to access your outbound intelligence dashboard</p>
+            </div>
+            <form id="form-login">
+                <div class="modal-body" style="padding: 20px 24px;">
+                    <div id="login-error" style="display: none; padding: 10px 14px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; color: #f87171; font-size: 13px; margin-bottom: 16px;"></div>
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label for="login-email" style="display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px;">Email</label>
+                        <input type="text" id="login-email" class="input" value="admin@leadflow.local" required placeholder="admin@leadflow.local" style="width: 100%;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label for="login-password" style="display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px;">Password</label>
+                        <input type="password" id="login-password" class="input" value="admin123456" required placeholder="••••••••" style="width: 100%;">
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 10px; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-light);">
+                        Default: <code>admin@leadflow.local</code> / <code>admin123456</code>
+                    </div>
+                </div>
+                <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border-light);">
+                    <button type="submit" class="btn btn-primary" id="btn-submit-login" style="width: 100%; justify-content: center; font-size: 14px; font-weight: 600; padding: 10px;">
+                        Sign In
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Toast Notification -->
     <div class="toast-container" id="toast-container"></div>
